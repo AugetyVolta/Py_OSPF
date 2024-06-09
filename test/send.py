@@ -20,7 +20,7 @@ def create_ospf_hello():
     ospf = OSPF_Header(
         version=2,
         type=1,  # Hello 包
-        router_id="114.51.4.19",
+        router_id="1.1.1.1",
         area_id="0.0.0.0",
         autype=0,
         auth=0
@@ -33,7 +33,7 @@ def create_ospf_dd():
     dd_packet = OSPF_DD(
         mtu=1500,
         options=0x02,
-        flags=0x00,
+        flags=0x07,
         dd_sequence=0,
         lsa_headers=[
             OSPF_LSAHeader(
@@ -62,20 +62,20 @@ def create_ospf_dd():
     ospf = OSPF_Header(
         version=2,
         type=2,  # DD 报文
-        router_id="114.51.4.19",
+        router_id="1.1.1.1",
         area_id="0.0.0.0",
         autype=0,
         auth=0
     )
     
-    # # 打印报文内容
-    # print("OSPF_DD 报文内容：")
-    # dd_packet.show()
+    # 打印报文内容
+    print("OSPF_DD 报文内容：")
+    dd_packet.show()
 
-    # # # 打印每个 LSAHeader 的字段值
-    # print("\n每个 LSAHeader 的字段值：")
-    # for lsa_header in dd_packet.lsa_headers:
-    #     lsa_header.show()
+    # 打印每个 LSAHeader 的字段值
+    print("\n每个 LSAHeader 的字段值：")
+    for lsa_header in dd_packet.lsa_headers:
+        lsa_header.show()
     
     packet = IP(src="192.168.60.3", dst="192.168.60.4") / ospf / dd_packet
     return packet

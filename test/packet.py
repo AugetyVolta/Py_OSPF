@@ -4,7 +4,7 @@ from scapy.fields import *
 from scapy.packet import Packet
 
 class OSPF_Header(Packet):
-    name = 'OSPF_header'
+    name = 'OSPF_Header'
     fields_desc = [
         ByteField("version", 2),
         ByteEnumField("type", 1, {1: "Hello", 2: "DB Description", 3: "LS Request", 4: "LS Update", 5: "LS Ack"}),
@@ -58,6 +58,10 @@ class OSPF_LSAHeader(Packet):
     # 需要重写函数, important!!!
     def extract_padding(self, s):
         return "", s
+    
+    def post_build(self, p, pay):
+        pass
+        # TODO 计算checksum
 
 class OSPF_DD(Packet):
     name = 'OSPF_DD'
@@ -69,13 +73,32 @@ class OSPF_DD(Packet):
         PacketListField("lsa_headers", [], OSPF_LSAHeader, length_from=lambda pkt: (pkt.underlayer.len - 8))
     ]
 
+class OSPF_LSR_Item(Packet):
+    name = 'OSPF_LSR_Item'
+    fields_desc = [
+        IntField("type", 1),
+        IPField("lsa_id", "0.0.0.0"),
+        IPField("adv_router", "0.0.0.0"),
+    ]
 
+    # 需要重写函数, important!!!
+    def extract_padding(self, s):
+        return "", s
 
 class OSPF_LSR(Packet):
     name = 'OSPF_LSR'
+    fields_desc = [
+        PacketListField("lsa_requests", [], OSPF_LSR_Item)
+    ]
 
 class OSPF_LSU(Packet):
     name = 'OSPF_LSU'
+    fields_desc = [
+        
+    ]
 
-class OSPF_LSA(Packet):
-    name = 'OSPF_LSA'
+class OSPF_LSAck(Packet):
+    name = 'OSPF_LSAck'
+    fields_desc = [
+        PacketListField("lsa_headers", [], OSPF_LSAHeader)
+    ]
