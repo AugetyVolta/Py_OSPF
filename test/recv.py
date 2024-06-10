@@ -76,5 +76,5 @@ bind_layers(OSPF_Header, OSPF_LSU, type=4)
 # 绑定 OSPF 层和 OSPF LSR 描述符层
 bind_layers(OSPF_Header, OSPF_LSAck, type=5)
 
-
-sniff(filter="ip proto 89", prn=handle_ospf)
+if __name__ == "__main__":
+    sniff(filter="ip proto 89", prn=handle_ospf)

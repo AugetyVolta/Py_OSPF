@@ -14,7 +14,7 @@ def create_ospf_hello():
         router_dead_interval=40,
         designated_router="192.168.60.3",
         backup_designated_router="0.0.0.0",
-        neighbors=[]
+        neighbors=["9.9.9.9"]
     )
     
     ospf = OSPF_Header(
@@ -87,11 +87,12 @@ bind_layers(OSPF_Header, OSPF_Hello, type=1)
 # 绑定 OSPF 层和 OSPF DD 描述符层
 bind_layers(OSPF_Header, OSPF_DD, type=2)
 
-functions = {
-    "hello":create_ospf_hello,
-    "dd":create_ospf_dd
-}
+if __name__ == "__main__":
+    functions = {
+        "hello":create_ospf_hello,
+        "dd":create_ospf_dd
+    }
 
-fun = functions["dd"]
-packet = fun()
-send(packet)
+    fun = functions["hello"]
+    packet = fun()
+    send(packet)
