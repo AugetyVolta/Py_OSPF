@@ -4,8 +4,13 @@ from scapy.fields import *
 from scapy.packet import Packet
 from packet import OSPF_Header,OSPF_Hello,OSPF_DD,OSPF_LSR,OSPF_LSU,OSPF_LSAck
 
+Debug = True
+show_list = [1,2,3,4,5]
+
 def handle_ospf(packet):
     if OSPF_Header in packet and packet[OSPF_Header].type == 1:
+        if Debug and packet[OSPF_Header].type not in show_list:
+            return
         hello_packet = packet[OSPF_Hello]
         print("\033[1;36mReceived OSPF Hello Packet:\033[0m")
         print(f"Network Mask: {hello_packet.network_mask}")
@@ -18,6 +23,8 @@ def handle_ospf(packet):
         print(f"Neighbors: {hello_packet.neighbors}")
 
     elif OSPF_Header in packet and packet[OSPF_Header].type == 2:
+        if Debug and packet[OSPF_Header].type not in show_list:
+            return
         dd_packet = packet[OSPF_DD]
         print("\033[1;36mReceived OSPF DD Packet:\033[0m")
         print(f"MTU: {dd_packet.mtu}")
@@ -29,6 +36,8 @@ def handle_ospf(packet):
             lsa_header.show()
 
     elif OSPF_Header in packet and packet[OSPF_Header].type == 3:
+        if Debug and packet[OSPF_Header].type not in show_list:
+            return
         dd_packet = packet[OSPF_LSR]
         print("\033[1;36mReceived OSPF LSR Packet:\033[0m")
         print(f"LSA Requests: {dd_packet.lsa_requests}")
@@ -36,10 +45,17 @@ def handle_ospf(packet):
             lsr_item.show()
 
     elif OSPF_Header in packet and packet[OSPF_Header].type == 4:
+        if Debug and packet[OSPF_Header].type not in show_list:
+            return
         dd_packet = packet[OSPF_LSU]
         print("\033[1;36mReceived OSPF LSU Packet:\033[0m")
+        print(f"Num of LSA: {dd_packet.num_lsa}")
+        for lsa in dd_packet.lsa_list:
+            lsa.show()
 
     elif OSPF_Header in packet and packet[OSPF_Header].type == 5:
+        if Debug and packet[OSPF_Header].type not in show_list:
+            return
         dd_packet = packet[OSPF_LSAck]
         print("\033[1;36mReceived OSPF LSAck Packet:\033[0m")
         print(f"LSA Headers: {dd_packet.lsa_headers}")

@@ -52,7 +52,7 @@ class OSPF_LSAHeader(Packet):
         IPField("adv_router", "0.0.0.0"),
         IntField("seq", 0),
         XShortField("checksum", 0),
-        ShortField("length", 0)
+        ShortField("len", 0)
     ]
 
     # 需要重写函数, important!!!
@@ -61,7 +61,52 @@ class OSPF_LSAHeader(Packet):
     
     def post_build(self, p, pay):
         pass
-        # TODO 计算checksum
+        # TODO 计算checksum,len
+
+class OSPF_RouterLSA_Item(Packet):
+    name = "OSPF_RouterLSA_Item"
+    fields_desc = [
+        IPField("link_id", "255.255.255.0"),
+        IPField("link_data", "0.0.0.0"),
+        ByteField("type",0),
+        ByteField("tos",0),
+        ShortField("metric", 0)
+        # TODO: 还有一部分没有遇到先不实现
+    ]
+
+    def extract_padding(self, s):
+        return "", s
+
+class OSPF_RouterLSA(OSPF_LSAHeader):
+    name = "OSPF_RouterLSA"
+    fields_desc = OSPF_LSAHeader.fields_desc + [
+        XByteField("flags", 0),
+        ByteField("pad", 0),
+        ShortField("links", 0),
+        PacketListField("lsa_routers", [], OSPF_RouterLSA_Item, count_from=lambda pkt: pkt.links)
+    ]
+
+    def extract_padding(self, s):
+        return "", s
+
+class OSPF_NetworkLSA_Item(Packet):
+    name = "OSPF_NetworkLSA_Item"
+    fields_desc = [
+        IPField("attached_router", "0.0.0.0")
+    ]
+    
+    def extract_padding(self, s):
+        return "", s
+
+class OSPF_NetworkLSA(OSPF_LSAHeader):
+    name = "OSPF_NetworkLSA"
+    fields_desc = OSPF_LSAHeader.fields_desc + [
+        IPField("network_mask", "255.255.255.0"),
+        PacketListField("attached_routers", [], OSPF_NetworkLSA_Item, length_from=lambda pkt: (pkt.len - 24))
+    ]
+
+    def extract_padding(self, s):
+        return "", s
 
 class OSPF_DD(Packet):
     name = 'OSPF_DD'
@@ -91,10 +136,20 @@ class OSPF_LSR(Packet):
         PacketListField("lsa_requests", [], OSPF_LSR_Item)
     ]
 
+def lsa_parser(pkt, lst, cur, s):
+        lsa_type = s[3]
+        if lsa_type == 1:
+            return OSPF_RouterLSA
+        elif lsa_type == 2:
+            return OSPF_NetworkLSA
+        else:
+            return OSPF_LSAHeader
+        
 class OSPF_LSU(Packet):
     name = 'OSPF_LSU'
     fields_desc = [
-        
+        IntField("num_lsa", 0),
+        PacketListField("lsa_list", [], OSPF_LSAHeader, count_from=lambda pkt: pkt.num_lsa, next_cls_cb=lsa_parser)
     ]
 
 class OSPF_LSAck(Packet):
