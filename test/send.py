@@ -2,7 +2,7 @@ from scapy.all import *
 from scapy.compat import Any, Optional, Union
 from scapy.fields import *
 from scapy.packet import Packet
-from packet import OSPF_Header,OSPF_Hello,OSPF_LSAHeader,OSPF_DD
+from ospf_packet.packet import OSPF_Header,OSPF_Hello,OSPF_LSAHeader,OSPF_DD
 
 # 创建并发送 OSPF Hello 包
 def create_ospf_hello():

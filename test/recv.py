@@ -2,7 +2,7 @@ from scapy.all import *
 from scapy.compat import Any, Optional, Union
 from scapy.fields import *
 from scapy.packet import Packet
-from packet import OSPF_Header,OSPF_Hello,OSPF_DD,OSPF_LSR,OSPF_LSU,OSPF_LSAck
+from ospf_packet.packet import OSPF_Header,OSPF_Hello,OSPF_DD,OSPF_LSR,OSPF_LSU,OSPF_LSAck
 
 Debug = True
 show_list = [1,2,3,4,5]
