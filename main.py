@@ -2,40 +2,39 @@ import threading
 from scapy.all import *
 import signal
 from test.recv import handle_ospf
-from test.send import create_ospf_hello
+from config import Config
 from ospf_router.router import MyRouter
-
-stop_flag = False
-
-def sendHello():
-    timer = 0
-    while not stop_flag:
-        if timer%10 == 0:
-            packet = create_ospf_hello()
-            send(packet)
-        timer += 1
-        time.sleep(1)
+from ospf_packet.packetManager import sendHelloPackets 
 
 def recvPackets():
-    while not stop_flag:
+    while not Config.is_stop:
         sniff(filter="ip proto 89", prn=handle_ospf, timeout=1)
 
 def signal_handler(sig, frame):
-    global stop_flag
-    stop_flag = True
+    Config.is_stop = True
     print("Signal received, stopping threads...")
     sys.exit(0)
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, signal_handler)
+    # 路由器
     router = MyRouter()
 
-    recv_thread = threading.Thread(target=recvPackets)
-    send_thread = threading.Thread(target=sendHello)
+    # 每一个接口一个线程
+    send_hello_threads = []
+    recv_packet_threads = []
 
-    recv_thread.start()
-    send_thread.start()
+    # 生成并开启线程
+    for _,interface in router.interfaces.items():
+        send_hello = threading.Thread(target=sendHelloPackets,args=(router,interface))
+        recv_packet = threading.Thread(target=recvPackets)
 
-    signal.signal(signal.SIGINT, signal_handler)
+        send_hello_threads.append(send_hello)
+        recv_packet_threads.append(recv_packet)
+        
+        send_hello.start()
+        recv_packet.start()
+
     command_dicts = {
         "dis ": "display this router config",
         "exit": "terminal OSPF threads",
@@ -47,7 +46,7 @@ if __name__ == "__main__":
         if command == 'dis':
             router.disConfig()
         elif command == 'exit':
-            stop_flag = True
+            Config.is_stop = True
             print("Signal received, stopping threads...")
             break
         elif command == 'help':
@@ -57,5 +56,7 @@ if __name__ == "__main__":
             print("unknown command, please try command \033[33mhelp\033[0m for details")
         print()
 
-    recv_thread.join()
-    send_thread.join()
+    for thread in send_hello_threads:
+        thread.join()
+    for thread in recv_packet_threads:
+        thread.join()
