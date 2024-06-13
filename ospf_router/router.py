@@ -33,7 +33,8 @@ class MyRouter():
             for address in addresses:
                 if interface_name != 'lo' and address.family.name == "AF_INET":
                     interfaces[address.address] = Interface(ip=address.address, 
-                                                                 mask=address.netmask)
+                                                                 mask=address.netmask,
+                                                                 router=self)
         return interfaces
     
     def disConfig(self):

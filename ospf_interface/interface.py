@@ -1,35 +1,9 @@
 from enum import Enum
-
-"network type"
-class NetworkType(Enum):
-    T_P2P = 1,
-    T_BROADCAST = 2,
-    T_NBMA = 3,
-    T_P2MP = 4,
-    T_VIRTUAL = 5,
-
-"interface states"
-class InterfaceState(Enum):
-    S_Down = 0,
-    S_Loopback = 1,
-    S_Waiting = 2,
-    S_PointToPoint = 3,
-    S_DROther = 4,
-    S_Backup = 5,
-    S_DR = 6
-
-"interface events"
-class InterfaceEvent(Enum):
-    E_InterfaceUp = 0,
-    E_WaitTimer = 1,
-    E_BackupSeen = 2,
-    E_NeighborChange = 3,
-    E_LoopInd = 4,
-    E_UnloopInd = 5,
-    E_InterfaceDown = 6
+from config import NetworkType,InterfaceState,InterfaceEvent
+from ospf_neighbor.neighbor import Neighbor
 
 class Interface():
-    def __init__(self, ip, mask = "255.255.255.0", area_id = "0.0.0.0"):
+    def __init__(self, ip, router, mask = "255.255.255.0", area_id = "0.0.0.0"):
         self.type = NetworkType.T_BROADCAST
         self.state = InterfaceState.S_Down
         
@@ -60,9 +34,14 @@ class Interface():
 
         # 邻居列表字典{ip : neighbor}
         self.neighbors = {}
-    
-    def addNeighbor(self,ip,neighbor):
+
+        # 接口所在router
+        self.router = router
+
+    def addNeighbor(self,ip):
+        neighbor = Neighbor(ip,self)
         self.neighbors[ip] = neighbor
+        return neighbor
     
     def getNeighbor(self,ip):
         if ip in self.neighbors.keys():

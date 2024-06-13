@@ -4,11 +4,8 @@ import signal
 from test.recv import handle_ospf
 from config import Config
 from ospf_router.router import MyRouter
-from ospf_packet.packetManager import sendHelloPackets 
+from ospf_packet.packetManager import sendHelloPackets,recvPackets 
 
-def recvPackets():
-    while not Config.is_stop:
-        sniff(filter="ip proto 89", prn=handle_ospf, timeout=1)
 
 def signal_handler(sig, frame):
     Config.is_stop = True
@@ -27,7 +24,7 @@ if __name__ == "__main__":
     # 生成并开启线程
     for _,interface in router.interfaces.items():
         send_hello = threading.Thread(target=sendHelloPackets,args=(router,interface))
-        recv_packet = threading.Thread(target=recvPackets)
+        recv_packet = threading.Thread(target=recvPackets,args=(router,interface))
 
         send_hello_threads.append(send_hello)
         recv_packet_threads.append(recv_packet)
