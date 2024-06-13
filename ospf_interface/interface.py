@@ -5,7 +5,7 @@ from ospf_neighbor.neighbor import Neighbor
 class Interface():
     def __init__(self, ip, router, mask = "255.255.255.0", area_id = "0.0.0.0"):
         self.type = NetworkType.T_BROADCAST
-        self.state = InterfaceState.S_Down
+        self.state = InterfaceState.S_Waiting
         
         # string, 使用ipaddress方法转
         self.ip = ip
@@ -58,3 +58,46 @@ class Interface():
         print(f'mtu : {self.mtu}')
         print(f'cost : {self.cost}')
         print(f"neighbors : {list(self.neighbors.keys())}")
+
+    def eventInterfaceUp(self):
+        pass# TODO
+
+    def eventWaitTimer(self):
+        pass# TODO
+
+    def eventBackupSeen(self):
+        if self.state == InterfaceState.S_Waiting:
+            # TODO
+            if self.ip == self.dr:
+                print(f"\033[1;36mInterface {self.ip} Event BackupSeen State {self.state.name} --> {InterfaceState.S_DR.name}\033[0m")
+                self.state = InterfaceState.S_DR
+            elif self.ip == self.bdr:
+                print(f"\033[1;36mInterface {self.ip} Event BackupSeen State {self.state.name} --> {InterfaceState.S_Backup.name}\033[0m")
+                self.state = InterfaceState.S_Backup
+            else:
+                print(f"\033[1;36mInterface {self.ip} Event BackupSeen State {self.state.name} --> {InterfaceState.S_DROther.name}\033[0m")
+                self.state = InterfaceState.S_DROther
+
+        else:
+            print(f"\033[1;36mInterface {self.ip} Event BackupSeen Pass\033[0m")
+    
+    def eventNeighborChange(self):
+        if self.state == InterfaceState.S_DR or \
+            self.state == InterfaceState.S_Backup or \
+            self.state == InterfaceState.S_DROther:
+            # TODO
+            if self.ip == self.dr:
+                print(f"\033[1;36mInterface {self.ip} Event NeighborChange State {self.state.name} --> {InterfaceState.S_DR.name}\033[0m")
+                self.state = InterfaceState.S_DR
+            elif self.ip == self.bdr:
+                print(f"\033[1;36mInterface {self.ip} Event NeighborChange State {self.state.name} --> {InterfaceState.S_Backup.name}\033[0m")
+                self.state = InterfaceState.S_Backup
+            else:
+                print(f"\033[1;36mInterface {self.ip} Event NeighborChange State {self.state.name} --> {InterfaceState.S_DROther.name}\033[0m")
+                self.state = InterfaceState.S_DROther
+
+        else:
+            print(f"\033[1;36mInterface {self.ip} Event NeighborChange Pass\033[0m")
+
+    def InterfaceDown(self):
+        pass

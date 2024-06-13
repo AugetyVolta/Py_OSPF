@@ -20,13 +20,15 @@ class Neighbor():
 
         # 邻居信息
         self.id = ""
-        self.priority = 0
+        self.priority = 1
         self.ip = ip
-        self.ndr = "" # 邻居认为的DR,里面是路由器的接口ip,不是router_id
-        self.nbdr = "" # 邻居认为的BDR,里面是路由器的接口ip,不是router_id
+        self.ndr = "0.0.0.0" # 邻居认为的DR,里面是路由器的接口ip,不是router_id
+        self.nbdr = "0.0.0.0" # 邻居认为的BDR,里面是路由器的接口ip,不是router_id
 
         # 邻居对面的interface,即本机的interface,两端的网络状况肯定是一样的
         self.hostInter = hostInter
+
+        self.send_empty_dd_thread = None
 
         # 连接状态重传列表
         # TODO
@@ -67,9 +69,9 @@ class Neighbor():
             self.is_master = True
             
             # 开始发空DD报文
-            send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
-            send_empty_dd_thread.start()
-            send_empty_dd_thread.join()
+            self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
+            self.send_empty_dd_thread.start()
+            self.send_empty_dd_thread.join()
 
         elif self.state.value >= int(NeighborState.S_2Way.value[0]):
             print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived Pass\033[0m")

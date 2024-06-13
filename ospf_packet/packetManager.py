@@ -1,5 +1,5 @@
 from scapy.all import *
-from config import Config
+from config import Config, InterfaceState
 # from ospf_interface.interface import Interface
 # from ospf_neighbor.neighbor import Neighbor
 # from ospf_router.router import MyRouter
@@ -44,27 +44,27 @@ def sendEmptyDDPackets(neighbor):
     while True and not Config.is_stop:
         if neighbor.state != NeighborState.S_Exstart:
             break 
-
-        ospf_header = OSPF_Header(
-            version = 2,
-            type = 2,  # DD 包
-            router_id = interface.router.router_id,
-            area_id = interface.area_id,
-            autype = 0,
-            auth = 0
-        )
-        dd_packet = OSPF_DD(
-            mtu=interface.mtu,
-            options=0x02,
-            flags=0x07, # I,M,MS
-            dd_sequence=neighbor.dd_sequence_number,
-            lsa_headers=[]
-        )
-        
-        dd_packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd_packet
-        send(dd_packet, verbose=False)
-        if Config.is_debug:
-            print("\033[1;32mSendEmptyDDPacket: send success!\033[0m")
+        if timer == 0:
+            ospf_header = OSPF_Header(
+                version = 2,
+                type = 2,  # DD 包
+                router_id = interface.router.router_id,
+                area_id = interface.area_id,
+                autype = 0,
+                auth = 0
+            )
+            dd_packet = OSPF_DD(
+                mtu=interface.mtu,
+                options=0x02,
+                flags=0x07, # I,M,MS
+                dd_sequence=neighbor.dd_sequence_number,
+                lsa_headers=[]
+            )
+            
+            dd_packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd_packet
+            send(dd_packet, verbose=False)
+            if Config.is_debug:
+                print("\033[1;32mSendEmptyDDPacket: send success!\033[0m")
 
         timer = (timer + 1) % interface.rxmt_interval
         time.sleep(1)
@@ -80,7 +80,7 @@ def handle_ospf_packets(packet, router, interface):
     if Config.is_debug:
         print("\033[1;32mrecvPackets: recv one packet\033[0m")
         print(f'src : {src_ip}, dst : {dst_ip}')
-
+    # Hello
     if OSPF_Header in packet and packet[OSPF_Header].type == 1:
         ospf_header = packet[OSPF_Header]
         hello_packet = packet[OSPF_Hello] 
@@ -98,7 +98,12 @@ def handle_ospf_packets(packet, router, interface):
         neighbor = interface.getNeighbor(src_ip)    
         if neighbor == None:
             neighbor = interface.addNeighbor(src_ip)
-        
+        # 邻居之前的DR, BDR, priority
+        prev_dr = neighbor.ndr
+        prev_bdr = neighbor.nbdr
+        prev_priority = neighbor.priority
+
+        # 设置新的参数
         neighbor.id = ospf_header.router_id
         neighbor.priority = hello_packet.router_priority
         neighbor.ndr = hello_packet.designated_router
@@ -113,8 +118,27 @@ def handle_ospf_packets(packet, router, interface):
             neighbor.event1WayReceived()
             return # 终止包处理过程
         
-        # DR,BDR
-        
+        # priority change
+        if prev_priority != neighbor.priority:
+            interface.eventNeighborChange()
+
+        # DR
+        if neighbor.ndr == neighbor.ip and \
+        neighbor.nbdr == "0.0.0.0" and \
+        interface.state == InterfaceState.S_Waiting:
+            interface.eventBackupSeen()
+        elif (prev_dr == neighbor.ip) != (neighbor.ndr == neighbor.ip): 
+            interface.eventNeighborChange()
+
+        # BDR
+        if neighbor.nbdr == neighbor.ip and \
+        interface.state == InterfaceState.S_Waiting:
+            interface.eventBackupSeen()
+        elif (prev_bdr == neighbor.ip) != (neighbor.nbdr == neighbor.ip):
+            interface.eventNeighborChange()
+    # DD
+    elif OSPF_Header in packet and packet[OSPF_Header].type == 2:
+        pass
 
 
 def recvPackets(router, interface):
