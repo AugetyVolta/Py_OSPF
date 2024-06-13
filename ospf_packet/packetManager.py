@@ -1,9 +1,8 @@
 from scapy.all import *
-from config import Config, InterfaceState
 # from ospf_interface.interface import Interface
 # from ospf_neighbor.neighbor import Neighbor
 # from ospf_router.router import MyRouter
-from config import NeighborState
+from config import Config,NeighborState,InterfaceState,logger
 from ospf_packet.packet import OSPF_Header,OSPF_Hello,OSPF_DD,OSPF_LSR,OSPF_LSU,OSPF_LSAck
 
 def sendHelloPackets(router, interface):
@@ -32,8 +31,7 @@ def sendHelloPackets(router, interface):
             hello_packet = IP(src=interface.ip, dst="224.0.0.5", ttl=1) / ospf_header / hello_packet
             send(hello_packet, verbose=False)
 
-            if Config.is_debug:
-                print("\033[1;32mSendHelloPacket: send success!\033[0m")
+            logger.debug("\033[1;32mSendHelloPacket: send success!\033[0m")
 
         timer = (timer + 1) % interface.hello_interval
         time.sleep(1)
@@ -63,8 +61,8 @@ def sendEmptyDDPackets(neighbor):
             
             dd_packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd_packet
             send(dd_packet, verbose=False)
-            if Config.is_debug:
-                print("\033[1;32mSendEmptyDDPacket: send success!\033[0m")
+            
+            logger.debug("\033[1;32mSendEmptyDDPacket: send success!\033[0m")
 
         timer = (timer + 1) % interface.rxmt_interval
         time.sleep(1)
@@ -77,23 +75,22 @@ def handle_ospf_packets(packet, router, interface):
     # 不处理自己发出的,不处理目标不是自己也不是广播的包
     if src_ip == interface.ip or dst_ip != interface.ip and dst_ip != '224.0.0.5':
         return
-    if Config.is_debug:
-        print("\033[1;32mrecvPackets: recv one packet\033[0m")
-        print(f'src : {src_ip}, dst : {dst_ip}')
+    logger.debug("\033[1;32mrecvPackets: recv one packet\033[0m")
+    logger.debug(f'src : {src_ip}, dst : {dst_ip}')
     # Hello
     if OSPF_Header in packet and packet[OSPF_Header].type == 1:
         ospf_header = packet[OSPF_Header]
         hello_packet = packet[OSPF_Hello] 
-        if Config.is_debug:
-            print("\033[1;36mReceived OSPF Hello Packet:\033[0m")
-            print(f"Network Mask: {hello_packet.network_mask}")
-            print(f"Hello Interval: {hello_packet.hello_interval}")
-            print(f"Options: {hello_packet.options}")
-            print(f"Router Priority: {hello_packet.router_priority}")
-            print(f"Router Dead Interval: {hello_packet.router_dead_interval}")
-            print(f"Designated Router: {hello_packet.designated_router}")
-            print(f"Backup Designated Router: {hello_packet.backup_designated_router}")
-            print(f"Neighbors: {hello_packet.neighbors}")
+
+        logger.debug("\033[1;36mReceived OSPF Hello Packet:\033[0m")
+        logger.debug(f"Network Mask: {hello_packet.network_mask}")
+        logger.debug(f"Hello Interval: {hello_packet.hello_interval}")
+        logger.debug(f"Options: {hello_packet.options}")
+        logger.debug(f"Router Priority: {hello_packet.router_priority}")
+        logger.debug(f"Router Dead Interval: {hello_packet.router_dead_interval}")
+        logger.debug(f"Designated Router: {hello_packet.designated_router}")
+        logger.debug(f"Backup Designated Router: {hello_packet.backup_designated_router}")
+        logger.debug(f"Neighbors: {hello_packet.neighbors}")
 
         neighbor = interface.getNeighbor(src_ip)    
         if neighbor == None:

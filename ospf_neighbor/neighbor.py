@@ -1,9 +1,6 @@
-from enum import Enum, auto
 import threading
-
-from config import NetworkType,NeighborState,NeighborEvent
+from config import NetworkType,NeighborState,logger
 from ospf_packet.packetManager import sendEmptyDDPackets
-
 
 class Neighbor():
     def __init__(self,ip,hostInter):
@@ -36,16 +33,16 @@ class Neighbor():
     # 从邻居接收到一个 Hello 包
     def eventHelloReceived(self):
         if self.state == NeighborState.S_Down:
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event HelloReceived State {self.state.name} --> {NeighborState.S_Init.name}\033[0m")
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event HelloReceived State {self.state.name} --> {NeighborState.S_Init.name}\033[0m")
             self.state = NeighborState.S_Init
         # 这个只和Numba网络相关，因此忽略，也不会有状态转移到Attempt
         elif self.state == NeighborState.S_Attempt:
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event HelloReceived State {self.state.name} --> {NeighborState.S_Init.name}\033[0m")
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event HelloReceived State {self.state.name} --> {NeighborState.S_Init.name}\033[0m")
             self.state = NeighborState.S_Init
-        elif self.state.value >= int(NeighborState.S_Init.value[0]):
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event HelloReceived Update timer\033[0m")
+        elif self.state.value >= NeighborState.S_Init.value:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event HelloReceived Update timer\033[0m")
         else:
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event HelloReceived Pass\033[0m")
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event HelloReceived Pass\033[0m")
 
     # 两台邻居路由器之间达到双向通讯。这表明在邻居的 Hello 包中包含了路由器自身。
     def event2WayReceived(self):
@@ -58,12 +55,12 @@ class Neighbor():
                 self.hostInter.ip != self.nbdr and \
                 self.ip != self.ndr and \
                 self.ip != self.nbdr:
-                    print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived State {self.state.name} --> {NeighborState.S_2Way.name}\033[0m")
+                    logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived State {self.state.name} --> {NeighborState.S_2Way.name}\033[0m")
                     self.state = NeighborState.S_2Way
                     return
                 
             # 其他的默认
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
             self.state = NeighborState.S_Exstart
             self.dd_sequence_number = 0
             self.is_master = True
@@ -71,18 +68,18 @@ class Neighbor():
             # 开始发空DD报文
             self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
             self.send_empty_dd_thread.start()
-            self.send_empty_dd_thread.join()
+            # self.send_empty_dd_thread.join() 不能有这个, 否则主进程被阻塞了
 
-        elif self.state.value >= int(NeighborState.S_2Way.value[0]):
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived Pass\033[0m")
+        elif self.state.value >= NeighborState.S_2Way.value:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived Pass\033[0m")
 
     def event1WayReceived(self):
-        if self.state.value >= int(NeighborState.S_2Way.value[0]):
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived State {self.state.name} --> {NeighborState.S_Init.name}\033[0m")
+        if self.state.value >= NeighborState.S_2Way.value:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived State {self.state.name} --> {NeighborState.S_Init.name}\033[0m")
             self.state = NeighborState.S_Init
             # TODO 清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
 
         elif self.state == NeighborState.S_Init:
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived Pass\033[0m")
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived Pass\033[0m")
         else:
-            print(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived Pass\033[0m")
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived Pass\033[0m")
