@@ -83,3 +83,42 @@ class Neighbor():
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived Pass\033[0m")
         else:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived Pass\033[0m")
+    
+    # 决定是否需要与邻居建立/维持邻接关系。这将导致一些邻接的形成和拆除
+    def eventAdjOk(self):
+        if self.state == NeighborState.S_2Way:
+            # 决定是否需要与邻居路由器形成邻接.如果不需要，邻居状态就保持在 2-Way.
+            # 否则，邻居状态变为 ExStart, 并执行上面 Init 状态下.收到 2-WayReceived 事件时所执行的操作
+            if self.hostInter.type == NetworkType.T_BROADCAST or self.hostInter.type == NetworkType.T_NBMA:
+                if self.hostInter.ip != self.ndr and \
+                self.hostInter.ip != self.nbdr and \
+                self.ip != self.ndr and \
+                self.ip != self.nbdr:
+                    logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk Keep 2Way\033[0m")
+                    return
+            
+            # 可以建立连接
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
+            self.state = NeighborState.S_Exstart
+            self.dd_sequence_number = 0
+            self.is_master = True
+            
+            # 开始发空DD报文
+            self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
+            self.send_empty_dd_thread.start()
+        elif self.state.value >= NeighborState.S_Exstart.value:
+            # 决定是否需要与邻居路由器继续保持邻接,如果是，就无须改变状态，且无须更多操作
+            # 否则，邻接（可能仅部分建立）必须被拆除。邻居状态变为 2-Way,清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
+            if self.hostInter.type == NetworkType.T_BROADCAST or self.hostInter.type == NetworkType.T_NBMA:
+                if self.hostInter.ip != self.ndr and \
+                self.hostInter.ip != self.nbdr and \
+                self.ip != self.ndr and \
+                self.ip != self.nbdr:
+                    logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk State {self.state.name} --> {NeighborState.S_2Way.name}\033[0m")
+                    self.state = NeighborState.S_2Way
+                    # TODO:清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
+                    return
+            # 保持连接
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk Keep connected\033[0m")
+        else:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk Pass\033[0m")
