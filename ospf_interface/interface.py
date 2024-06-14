@@ -57,7 +57,7 @@ class Interface():
         print(f'bdr : {self.bdr}')
         print(f'mtu : {self.mtu}')
         print(f'cost : {self.cost}')
-        print(f"neighbors : {[(ip,n.state.name,n.is_master) for ip,n in self.neighbors.items()]}")
+        print(f"neighbors : {[(ip,n.state.name,n.is_master,n.dd_sequence_number) for ip,n in self.neighbors.items()]}")
 
     def eventInterfaceUp(self):
         pass# TODO

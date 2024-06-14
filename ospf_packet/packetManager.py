@@ -38,37 +38,68 @@ def sendHelloPackets(router, interface):
         time.sleep(1)
 
 def sendEmptyDDPackets(neighbor):
-    timer = 0
+    if neighbor.state != NeighborState.S_Exstart:
+        return
     interface = neighbor.hostInter
-    while True and not Config.is_stop:
-        if neighbor.state != NeighborState.S_Exstart:
-            break 
-        if timer == 0:
-            ospf_header = OSPF_Header(
-                version = 2,
-                type = 2,  # DD 包
-                router_id = interface.router.router_id,
-                area_id = interface.area_id,
-                autype = 0,
-                auth = 0
-            )
-            dd_packet = OSPF_DD(
-                mtu=interface.mtu,
-                options=0x02,
-                flags=0x07, # I,M,MS
-                dd_sequence=neighbor.dd_sequence_number,
-                lsa_headers=[]
-            )
-            
-            dd_packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd_packet
-            # 保存上一次发送的DD报文
-            neighbor.last_send_dd_packet = dd_packet
-            send(dd_packet, verbose=False)
-            
-            logger.debug("\033[1;32mSendEmptyDDPacket: send success!\033[0m")
+    ospf_header = OSPF_Header(
+        version = 2,
+        type = 2,  # DD 包
+        router_id = interface.router.router_id,
+        area_id = interface.area_id,
+        autype = 0,
+        auth = 0
+    )
+    dd_packet = OSPF_DD(
+        mtu=interface.mtu,
+        options=0x02,
+        flags=0x07, # I,M,MS
+        dd_sequence=neighbor.dd_sequence_number,
+        lsa_headers=[]
+    )      
+    dd_packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd_packet
+    # 保存上一次发送的DD报文
+    neighbor.last_send_dd_packet = dd_packet
+    send(dd_packet, verbose=False)
+    logger.debug(f"\033[1;32mSendEmptyDDPacket Seq {neighbor.dd_sequence_number}: send success!\033[0m")
 
-        timer = (timer + 1) % interface.rxmt_interval
-        time.sleep(1)
+    # 检查定时器是否存在，如果存在则取消
+    if dd_packet.dd_sequence in neighbor.send_dd_timers:
+        neighbor.send_dd_timers[dd_packet.dd_sequence].cancel()
+    
+    # 创建新的定时器
+    timer = threading.Timer(interface.rxmt_interval,sendEmptyDDPackets,(neighbor,))
+    neighbor.send_dd_timers[dd_packet.dd_sequence] = timer
+    timer.start()
+
+def sendDDPackets(interface,neighbor,dd_packet):
+    send(dd_packet, verbose=False)
+    logger.debug(f"\033[1;32mSendDDPacket Seq {dd_packet.dd_sequence}\033[0m")
+    if Config.is_debug:
+        dd_packet.show()
+
+    # 检查定时器是否存在，如果存在则取消
+    if dd_packet.dd_sequence in neighbor.send_dd_timers:
+        neighbor.send_dd_timers[dd_packet.dd_sequence].cancel()
+    
+    # 创建新的定时器
+    timer = threading.Timer(interface.rxmt_interval,sendDDPackets,(interface,neighbor,dd_packet))
+    neighbor.send_dd_timers[dd_packet.dd_sequence] = timer
+    timer.start()
+
+    
+def handleRecvDDPackets(neighbor,dd_packet):
+    # 处理DD报文
+    pass
+    # 回复收到的DD报文
+    # Master
+    if neighbor.is_master == False:
+        # 将邻居数据结构中的DD序号加一
+        neighbor.dd_sequence_number += 1
+
+    # Slaver
+    elif neighbor.is_master == True:
+        # 将接收包中的 DD 序号设定为邻居数据结构中的 DD 序列号
+        neighbor.dd_sequence_number = dd_packet.dd_sequence
 
 
 def handle_ospf_packets(packet, router, interface):
@@ -142,7 +173,6 @@ def handle_ospf_packets(packet, router, interface):
         dd_packet = packet[OSPF_DD]
         neighbor = interface.getNeighbor(src_ip)
         is_dup = False # 是否是重复的DD
-        need_handle = False # 是否需要处理
 
         logger.debug("\033[1;36mReceived OSPF DD Packet:\033[0m")
         logger.debug(f"MTU: {dd_packet.mtu}")
@@ -191,21 +221,31 @@ def handle_ospf_packets(packet, router, interface):
                     
                 # 设定了初始（I）、更多（M）和主从（MS）选项位，包的其他部分为空，且邻居路由器标识比自身路由器标识要大
                 if dd_packet.flags == 0x07 and ipaddress.IPv4Address(neighbor.id) > ipaddress.IPv4Address(router.router_id):
+                    # 处理EmptyDD报文的发送Timer, 删除最初的DD报文的seq num对应关系
+                    neighbor.send_dd_timers[dd_packet.dd_sequence] = neighbor.send_dd_timers[neighbor.dd_sequence_number]
+                    neighbor.send_dd_timers.pop(neighbor.dd_sequence_number,None)
                     # 设置对面为master,需要根据对面设置seq num
                     neighbor.is_master = True
                     neighbor.dd_sequence_number = dd_packet.dd_sequence
+                    # 需要特殊处理,保证continue之后处理正确,进入正确接收的地方
+                    dd_packet.dd_sequence += 1
+                    dd_packet.flags = 0x03 # 设置为More, Master
                     logger.debug(f"\033[1;36mNeighbor {neighbor.id} is Master\033[0m")
+                    # 满足条件,邻居状态机执行 NegotiationDone
+                    neighbor.eventNegotiationDone()
+                    # 开始处理发送DD报文,即将对方设置为Master后自己发,对应RT1的exchange
+                    continue
                 # 清除了初始（I）和主从（MS）选项位，且包中的 DD 序号等于邻居数据结构中的 DD 序号（标明为确认），而且邻居路由器标识比自身路由器标识要小
                 elif (dd_packet.flags&0x05) == 0x00 and dd_packet.dd_sequence == neighbor.dd_sequence_number and ipaddress.IPv4Address(neighbor.id) < ipaddress.IPv4Address(router.router_id):
                     # 设置自己为master
                     neighbor.is_master = False
                     logger.debug(f"\033[1;36mNeighbor {neighbor.id} is Slaver\033[0m")
+                    # 满足条件,邻居状态机执行 NegotiationDone
+                    neighbor.eventNegotiationDone()
+                    continue # 此时无论LSA_Headers里面有无东西,都需要处理,对应RT2的exchange,可能还要接着发
                 else:        
                     logger.debug("\033[1;31mOSPF DD Packet Ignored\033[0m")
                     return
-                # 满足条件,邻居状态机执行 NegotiationDone
-                neighbor.eventNegotiationDone()
-                # TODO continue # 因为可能是走的else if,此时LSA_Headers里面有东西,需要重新处理
             # Exchange
             elif neighbor.state == NeighborState.S_Exchange:
                 # 从机收到重复的 DD 包时，则应当重发前一个 DD 包
@@ -229,9 +269,12 @@ def handle_ospf_packets(packet, router, interface):
                     # 包序号正常,正常处理
                     if neighbor.is_master == False and dd_packet.dd_sequence == neighbor.dd_sequence_number or \
                         neighbor.is_master == True and dd_packet.dd_sequence == neighbor.dd_sequence_number+1:
-                        # 需要处理设置为True
-                        need_handle = True
-                        logger.debug("\033[1;32mRecieve handlable DD Packet\033[0m")
+                        # 设置发送的DD报文状态为接收,Master和Slave的处理是一致的
+                        neighbor.send_dd_timers[neighbor.dd_sequence_number].cancel()
+                        logger.debug(f"\033[1;32mRecieve Reply for DD Packet Seq {neighbor.dd_sequence_number}\033[0m")    
+                        # 处理dd报文并回复
+                        handleRecvDDPackets(neighbor,dd_packet)
+                        logger.debug(f"\033[1;32mRecieve handlable DD Packet Seq {dd_packet.dd_sequence}\033[0m")
                     else:
                         neighbor.eventSeqNumberMismatch()
                         return
@@ -248,11 +291,6 @@ def handle_ospf_packets(packet, router, interface):
                         logger.debug("\033[1;32mRetransmit Last DD Packet\033[0m")
             # 跳出循环
             break
-        # 需要处理DD包
-        if need_handle:
-            # TODO:处理收到的DD包
-            pass
-
     # LSR
     elif OSPF_Header in packet and packet[OSPF_Header].type == 3:
         pass

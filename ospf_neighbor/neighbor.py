@@ -28,7 +28,7 @@ class Neighbor():
         # 邻居对面的interface,即本机的interface,两端的网络状况肯定是一样的
         self.hostInter = hostInter
 
-        self.send_empty_dd_thread = None
+        self.send_dd_timers = {} # seq,send_dd_timer 邻居发送DD报文定时器
 
         # 连接状态重传列表
         # TODO
@@ -70,10 +70,7 @@ class Neighbor():
             self.is_master = False
             
             # 开始发空DD报文
-            self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
-            self.send_empty_dd_thread.start()
-            # self.send_empty_dd_thread.join() 不能有这个, 否则主进程被阻塞了
-
+            sendEmptyDDPackets(self)
         elif self.state.value >= NeighborState.S_2Way.value:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived Pass\033[0m")
 
@@ -109,8 +106,7 @@ class Neighbor():
             self.is_master = False
             
             # 开始发空DD报文
-            self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
-            self.send_empty_dd_thread.start()
+            sendEmptyDDPackets(self)
         elif self.state.value >= NeighborState.S_Exstart.value:
             # 决定是否需要与邻居路由器继续保持邻接,如果是，就无须改变状态，且无须更多操作
             # 否则，邻接（可能仅部分建立）必须被拆除。邻居状态变为 2-Way,清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
@@ -139,7 +135,7 @@ class Neighbor():
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event NegotiationDone Pass\033[0m")
 
     def eventSeqNumberMismatch(self):
-        if self.state.value >= NeighborState.S_Exchange:
+        if self.state.value >= NeighborState.S_Exchange.value:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event SeqNumberMismatch State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
             self.state = NeighborState.S_Exstart
             # TODO:清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
@@ -149,7 +145,6 @@ class Neighbor():
             self.is_master = False
             
             # 开始发空DD报文
-            self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
-            self.send_empty_dd_thread.start()
+            sendEmptyDDPackets(self)
         else:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event SeqNumberMismatch Pass\033[0m")
