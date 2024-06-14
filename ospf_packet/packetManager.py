@@ -228,7 +228,7 @@ def handle_ospf_packets(packet, router, interface):
                     neighbor.is_master = True
                     neighbor.dd_sequence_number = dd_packet.dd_sequence
                     # 需要特殊处理,保证continue之后处理正确,进入正确接收的地方
-                    dd_packet.dd_sequence += 1
+                    neighbor.recvAnyWay = True
                     dd_packet.flags = 0x03 # 设置为More, Master
                     logger.debug(f"\033[1;36mNeighbor {neighbor.id} is Master\033[0m")
                     # 满足条件,邻居状态机执行 NegotiationDone
@@ -256,6 +256,14 @@ def handle_ospf_packets(packet, router, interface):
                             logger.debug("\033[1;32mRetransmit Last DD Packet\033[0m")
                         return
                 else:
+                    if neighbor.recvAnyWay:
+                        # 设置发送的DD报文状态为接收,Master和Slave的处理是一致的
+                        neighbor.send_dd_timers[neighbor.dd_sequence_number].cancel()
+                        logger.debug(f"\033[1;32mRecieve Reply for DD Packet Seq {neighbor.dd_sequence_number}\033[0m")
+                        # 处理dd报文并回复
+                        handleRecvDDPackets(neighbor,dd_packet)
+                        return
+                    
                     # 如果主从（MS）位的状态与当前的主从关系不匹配
                     # 如果意外设定了初始（I）位
                     # 如果包的选项域与以前接收到的 OSPF 可选项不同

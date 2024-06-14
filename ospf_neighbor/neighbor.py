@@ -8,6 +8,8 @@ class Neighbor():
         # 主从master/slave
         self.is_master = False
         
+        self.recvAnyWay = False
+        
         # 当前被发往邻居的 DD 包序号
         self.dd_sequence_number = 0
         # 最近接收到的数据库描述包，
