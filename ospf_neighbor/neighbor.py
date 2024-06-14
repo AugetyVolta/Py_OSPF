@@ -11,9 +11,12 @@ class Neighbor():
         # 当前被发往邻居的 DD 包序号
         self.dd_sequence_number = 0
         # 最近接收到的数据库描述包，
-        # 从邻居最近接收到的 DD 包中的 DD 序号，以及初始（I）、更多（M）和主从（MS）位。用于判断从邻居接收到的下一个 DD 包是否重复
-        self.last_dd_equence_number = 0 
+        # 从邻居最近接收到的 DD 包中的 DD 序号，以及初始（I）、更多（M）和主从（MS）位。用于判断从邻居接收到的下一个 DD 包是否重复,以及包的选项域
+        self.last_dd_sequence_number = 0 
         self.last_dd_flags = 0x00
+        self.last_dd_options = 0x00
+        # 发给neifgbor的上一个DD报文
+        self.last_send_dd_packet = None
 
         # 邻居信息
         self.id = ""
@@ -62,8 +65,9 @@ class Neighbor():
             # 其他的默认
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 2WayReceived State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
             self.state = NeighborState.S_Exstart
-            self.dd_sequence_number = 0
-            self.is_master = True
+            # 设置邻居的序号
+            self.dd_sequence_number = 114514
+            self.is_master = False
             
             # 开始发空DD报文
             self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
@@ -100,8 +104,9 @@ class Neighbor():
             # 可以建立连接
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
             self.state = NeighborState.S_Exstart
-            self.dd_sequence_number = 0
-            self.is_master = True
+            # 设置邻居的序号
+            self.dd_sequence_number = 114514
+            self.is_master = False
             
             # 开始发空DD报文
             self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
@@ -122,3 +127,29 @@ class Neighbor():
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk Keep connected\033[0m")
         else:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk Pass\033[0m")
+    
+    # 已经协商好主从关系，并交换了DD序号。这一信号表示开始收发DD包
+    def eventNegotiationDone(self):
+        if self.state == NeighborState.S_Exstart:
+            # TODO 路由器必须列出在邻居数据库汇总列表中，所包含的的全部区域连接状态数据库。
+            
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event NegotiationDone State {self.state.name} --> {NeighborState.S_Exchange.name}\033[0m")
+            self.state = NeighborState.S_Exchange
+        else:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event NegotiationDone Pass\033[0m")
+
+    def eventSeqNumberMismatch(self):
+        if self.state.value >= NeighborState.S_Exchange:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event SeqNumberMismatch State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
+            self.state = NeighborState.S_Exstart
+            # TODO:清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
+
+            # 设置邻居的序号
+            self.dd_sequence_number = 114514
+            self.is_master = False
+            
+            # 开始发空DD报文
+            self.send_empty_dd_thread = threading.Thread(target=sendEmptyDDPackets,args=(self,))
+            self.send_empty_dd_thread.start()
+        else:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event SeqNumberMismatch Pass\033[0m")
