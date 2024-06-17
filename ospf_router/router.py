@@ -1,9 +1,9 @@
 import psutil
 import ipaddress
-from config import InitialSequenceNumber, InterfaceState, NetworkType
+from config import InitialSequenceNumber, InterfaceState, NeighborState, NetworkType,logger,Config
 from ospf_interface.interface import Interface
 from ospf_lsdatabase.lsdb import LSADataBase
-from ospf_packet.packet import OSPF_RouterLSA, OSPF_RouterLSA_Item
+from ospf_packet.packet import OSPF_NetworkLSA, OSPF_NetworkLSA_Item, OSPF_RouterLSA, OSPF_RouterLSA_Item
 
 def get_network_realInter():
     realInters = psutil.net_if_addrs()
@@ -72,7 +72,8 @@ class MyRouter():
                 lsa_id = self.router_id, # 生成路由器的路由器标识
                 adv_router = self.router_id,
                 seq = self.lsa_seq,
-                flags = 0
+                flags = 0,
+                links = 0
             )
             # lsa序号增加
             self.lsa_seq += 1
@@ -108,20 +109,73 @@ class MyRouter():
                     router_lsa.lsa_routers.append(link_dscription)
                     router_lsa.links += 1
             # 计算校验和和长度
-            
+            # TODO:计算校验和
+            router_lsa.len = 24 + 12 * router_lsa.links
             # 加入到lsdb中
             old_lsa = lsdb.getLSA(router_lsa.type,router_lsa.lsa_id,router_lsa.adv_router)
             if old_lsa == None:
                 lsdb.addLSA(router_lsa)
+                logger.debug("\033[1;32mGenerate new Router LSA\033[0m")
+                if Config.is_debug:
+                    router_lsa.show()
             elif router_lsa.is_newer(old_lsa):
                 lsdb.delLSA(old_lsa)
                 lsdb.addLSA(router_lsa)
-            
+                logger.debug("\033[1;32mUpdate old Router LSA\033[0m")
+                if Config.is_debug:
+                    router_lsa.show()
+            else:
+                logger.debug("\033[1;32mNew Router LSA exists\033[0m")
             # 洪泛
             # TODO: 先空着
 
-    def genNetworkLSAs(self):
-        pass
+    def genNetworkLSAs(self,interface):
+        lsdb = interface.lsdb
+        # 生成NetworkLSA
+        network_lsa = OSPF_NetworkLSA(
+            age = 0,
+            options = 0x02,
+            type = 2, # network LSA
+            lsa_id = interface.dr, # 该网络上DR的IP接口地址
+            adv_router = self.router_id,
+            seq = self.lsa_seq,
+            network_mask = interface.mask
+        )
+        # lsa序号增加
+        self.lsa_seq += 1
+        # Network-LSA 中包含了与 DR 完全邻接的邻居列表，各台路由器由其 OSPF 路由器标识来识别
+        for neighbor in interface.neighbors.values():
+            if neighbor.state == NeighborState.S_Full:
+                network_lsa.attached_routers.append(
+                    OSPF_NetworkLSA_Item(
+                        attached_router = neighbor.hostInter.router.router_id
+                    )
+                )
+        # DR自己也在列表中
+        network_lsa.attached_routers.append(
+            OSPF_NetworkLSA_Item(
+                attached_router = self.router_id
+                )
+            )
+        # 计算校验和和len
+        # TODO:计算校验和
+        network_lsa.len = 24 + 4 * len(network_lsa.attached_routers)
+        # 加入lsdb中
+        old_lsa = lsdb.getLSA(network_lsa.type,network_lsa.lsa_id,network_lsa.adv_router)
+        if old_lsa == None:
+            lsdb.addLSA(network_lsa)
+            logger.debug("\033[1;32mGenerate new Network LSA\033[0m")
+            if Config.is_debug:
+                network_lsa.show()
+        elif network_lsa.is_newer(old_lsa):
+            lsdb.delLSA(old_lsa)
+            lsdb.addLSA(network_lsa)
+            logger.debug("\033[1;32mGenerate new Network LSA\033[0m")
+            if Config.is_debug:
+                network_lsa.show()
+        else:
+            logger.debug("\033[1;32mNew Network LSA exists\033[0m")
+
 
 def calculate_network_address(ip_str, netmask_str):
         # 将IP地址和掩码转换为IPv4Address和IPv4Network对象

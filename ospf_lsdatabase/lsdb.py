@@ -14,6 +14,7 @@ class LSADataBase():
         self.lsa_lock.acquire()
         for lsa in self.LSAs:
             if lsa.type == ls_type and lsa.lsa_id == lsa_id and lsa.adv_router == adv_router:
+                self.lsa_lock.release() # fix:这个地方一定要释放锁
                 return lsa
         self.lsa_lock.release()
         return None

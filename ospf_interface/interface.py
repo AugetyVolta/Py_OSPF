@@ -174,6 +174,7 @@ class Interface():
         # (5)设置接口的DR,BDR
         self.dr = final_dr.ip
         self.bdr = final_bdr.ip
+        logger.debug(f"\033[1;36mselectDR_BDR prec_DR {prev_dr} new_DR {self.dr} prec_BDR {prev_bdr} new_BDR {self.bdr}\033[0m")
 
         # (6)与Numba网络相关
         pass
@@ -183,5 +184,14 @@ class Interface():
             for neighbor in self.neighbors.values():
                 if neighbor.state.value >= NeighborState.S_2Way.value:
                     neighbor.eventAdjOk()
-
-        logger.debug(f"\033[1;36mselectDR_BDR new_DR {self.dr} new_BDR {self.bdr}\033[0m")
+        
+        # DR改变时,生成新的router_LSA
+        if self.dr != prev_dr:
+            self.router.genRouterLSAs()
+        # 路由器成为新的DR,生成新的Network LSA
+        if self.ip != prev_dr and self.ip == self.dr:
+            self.router.genNetworkLSAs(self)
+        # TODO: 如果路由器不再是DR,原来为该网络生成的LSA需要删除
+        if self.ip == prev_dr and self.ip != self.dr:
+            pass
+        
