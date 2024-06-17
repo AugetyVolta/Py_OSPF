@@ -38,6 +38,9 @@ class Interface():
         # 接口所在router
         self.router = router
 
+        # 接口使用的Lsdb
+        self.lsdb = None
+
     def addNeighbor(self,ip):
         neighbor = Neighbor(ip,self)
         self.neighbors[ip] = neighbor

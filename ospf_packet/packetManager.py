@@ -71,25 +71,45 @@ def sendEmptyDDPackets(neighbor):
     neighbor.send_dd_timers[dd_packet.dd_sequence] = timer
     timer.start()
 
-def sendDDPackets(interface,neighbor,dd_packet):
+def sendDDPackets(interface,neighbor,dd_packet,need_retrans=True):
+    # 保存发送的DD packet
+    neighbor.last_send_dd_packet = dd_packet
     send(dd_packet, verbose=False)
     logger.debug(f"\033[1;32mSendDDPacket Seq {dd_packet.dd_sequence}\033[0m")
     if Config.is_debug:
         dd_packet.show()
-
-    # 检查定时器是否存在，如果存在则取消
-    if dd_packet.dd_sequence in neighbor.send_dd_timers:
-        neighbor.send_dd_timers[dd_packet.dd_sequence].cancel()
     
-    # 创建新的定时器
-    timer = threading.Timer(interface.rxmt_interval,sendDDPackets,(interface,neighbor,dd_packet))
-    neighbor.send_dd_timers[dd_packet.dd_sequence] = timer
-    timer.start()
+    # 如果需要重传,默认是需要的
+    if need_retrans:
+        # 检查定时器是否存在，如果存在则取消
+        if dd_packet.dd_sequence in neighbor.send_dd_timers:
+            neighbor.send_dd_timers[dd_packet.dd_sequence].cancel()
+        
+        # 创建新的定时器
+        timer = threading.Timer(interface.rxmt_interval,sendDDPackets,(interface,neighbor,dd_packet))
+        neighbor.send_dd_timers[dd_packet.dd_sequence] = timer
+        timer.start()
 
     
 def handleRecvDDPackets(neighbor,dd_packet):
+    interface = neighbor.hostInter
     # 处理DD报文
-    pass
+    lsa_headers = dd_packet.lsa_headers
+    for header in lsa_headers:
+        # 如果 LS 类型为未知（即不是本规范所定义的 LS 类型 1-5）
+        # 或者是一个AS-external-LSA（LS 类型 = 5）而邻居关联到一个存根区域，就生成 SeqNumberMismatch，并终止处理
+        if not 1<=header.type<=5:
+            neighbor.eventSeqNumberMismatch()
+            return
+        # 数据库中没有，或者数据库中的数据较旧
+        lsa = interface.lsdb.getLSA(header.type,header.lsa_id,header.adv_router)
+        if lsa == None:
+            neighbor.add_list_state_request(header)
+            logger.debug(f"\033[1;32mLSA Need Req Type {header.type} LSA_id {header.lsa_id} Adv_router {header.adv_router}\033[0m")
+        elif header.is_newer(lsa):
+            neighbor.add_list_state_request(header)
+            logger.debug(f"\033[1;32mLSA Need update Type {header.type} LSA_id {header.lsa_id} Adv_router {header.adv_router}\033[0m")
+
     # 回复收到的DD报文
     # Master
     if neighbor.is_master == False:

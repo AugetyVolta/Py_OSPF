@@ -1,6 +1,8 @@
 import psutil
 import ipaddress
+from config import InitialSequenceNumber
 from ospf_interface.interface import Interface
+from ospf_lsdatabase.lsdb import LSADataBase
 
 def get_network_realInter():
     realInters = psutil.net_if_addrs()
@@ -12,6 +14,10 @@ class MyRouter():
         self.router_id = self.getRouterId()
         # 接口表{ip : interface}
         self.interfaces = self.initInterfaces()
+        # lsa序号,默认最小值
+        self.lsa_seq = InitialSequenceNumber
+        # 链路状态数据库,{area_id:lsdb}不同的area有不同的数据库
+        self.lsdbs = self.initLSDataBase()
 
     """
     所有接口的最小IP地址作为routerId,但是接口不能是回环接口localhost
@@ -36,6 +42,14 @@ class MyRouter():
                                                                  mask=address.netmask,
                                                                  router=self)
         return interfaces
+
+    def initLSDataBase(self):
+        lsdbs = {}
+        for interface in self.interfaces.values():
+            if interface.area_id not in lsdbs.keys():
+                lsdbs[interface.area_id] = LSADataBase()
+            interface.lsdb = lsdbs[interface.area_id]
+        return lsdbs
     
     def disConfig(self):
         print("\033[1;32m===========MyConfig===========\033[0m")

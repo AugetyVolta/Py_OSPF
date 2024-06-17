@@ -1,5 +1,6 @@
 import threading
-from config import NetworkType,NeighborState,logger
+from config import MaxAge, NetworkType,NeighborState,logger
+from ospf_packet.packet import OSPF_LSAHeader
 from ospf_packet.packetManager import sendEmptyDDPackets
 
 class Neighbor():
@@ -7,7 +8,7 @@ class Neighbor():
         self.state = NeighborState.S_Down
         # 主从master/slave
         self.is_master = False
-        
+        # 强制接收标志
         self.recvAnyWay = False
         
         # 当前被发往邻居的 DD 包序号
@@ -32,8 +33,41 @@ class Neighbor():
 
         self.send_dd_timers = {} # seq,send_dd_timer 邻居发送DD报文定时器
 
-        # 连接状态重传列表
-        # TODO
+        # TODO:不知道这几个要不要加锁
+        # 连接状态重传列表，已经被洪泛，但还没有从邻接得到确认的 LSA 列表。将按间隔重发直至确认，或邻接消失
+        self.link_state_retransmission_list = []
+        # 数据库汇总列表，区域连接状态数据库中 LSA 的完整列表。在邻居进入数据库交换状态时，以 DD 包的形式向邻居发送此列表
+        self.database_summary_list = []
+        # 连接状态请求列表，需要从邻居接收，以同步两者之间连接状态数据库的 LSA 列表
+        self.link_state_request_list = []
+    
+    def add_list_state_request(self,lsa_header):
+        self.link_state_request_list.append(lsa_header)
+    
+
+    # 初始化neighbor的数据库汇总列表
+    def initDateBaseSummaryList(self):
+        lock = self.hostInter.lsdb.lsa_lock
+        lock.acquire()
+        for lsa in self.hostInter.lsdb.LSAs:
+            lsa_header = OSPF_LSAHeader(
+                age = lsa.age,
+                options = lsa.options,
+                type = lsa.type,
+                lsa_id = lsa.lsa_id,
+                adv_router = lsa.adv_router,
+                seq = lsa.seq,
+                checksum = lsa.checksum,
+                len = lsa.len 
+            )
+            # 时限等于MaxAge的LSA被改为加入邻居连接状态重传列表
+            if lsa_header.age == MaxAge:
+                pass
+                # TODO:加入重传列表,还没想好如何处理
+            else:
+                self.database_summary_list.append(lsa_header)
+        lock.release()
+        logger.debug(f"\033[1;32mNeighbor {self.id} Ip {self.ip} initDateBaseSummaryList\033[0m")
 
     # 从邻居接收到一个 Hello 包
     def eventHelloReceived(self):
@@ -129,8 +163,8 @@ class Neighbor():
     # 已经协商好主从关系，并交换了DD序号。这一信号表示开始收发DD包
     def eventNegotiationDone(self):
         if self.state == NeighborState.S_Exstart:
-            # TODO 路由器必须列出在邻居数据库汇总列表中，所包含的的全部区域连接状态数据库。
-            
+            # 路由器必须列出在邻居数据库汇总列表中，所包含的的全部区域连接状态数据库。
+            self.initDateBaseSummaryList()
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event NegotiationDone State {self.state.name} --> {NeighborState.S_Exchange.name}\033[0m")
             self.state = NeighborState.S_Exchange
         else:
@@ -150,3 +184,9 @@ class Neighbor():
             sendEmptyDDPackets(self)
         else:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event SeqNumberMismatch Pass\033[0m")
+    
+    def evnetExchangeDone(self):
+        pass
+
+    def eventLoadingDone(self):
+        pass

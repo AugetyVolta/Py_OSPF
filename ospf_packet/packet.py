@@ -3,6 +3,8 @@ from scapy.compat import Any, Optional, Union
 from scapy.fields import *
 from scapy.packet import Packet
 
+from config import MaxAge, MaxAgeDiff
+
 class OSPF_Header(Packet):
     name = 'OSPF_Header'
     fields_desc = [
@@ -54,6 +56,23 @@ class OSPF_LSAHeader(Packet):
         XShortField("checksum", 0),
         ShortField("len", 0)
     ]
+
+    # 就默认type,lsa_id,adv_router一样了,在调用前判断了
+    def is_newer(self,header):
+        # 较大 LS 序号的 LSA 较新
+        if self.seq > header.seq:
+            return True
+        # 否则, LS 校验和不同，具有较大校验和（按 16 位无符号整数）的实例较新
+        if self.checksum > header.checksum:
+            return True
+        # 否则，如果其中一个实例的 LS 时限为 MaxAge
+        if self.age == MaxAge:
+            return True
+        # 否则，如果两个实例 LS 时限的差异大于 MaxAgeDiff，较小时限（较近生成）的实例为较新
+        if abs(self.age - header.age) > MaxAgeDiff and self.age < header.age:
+            return True
+        # 否则,认为相同,可以不用管
+        return False
 
     # 需要重写函数, important!!!
     def extract_padding(self, s):
