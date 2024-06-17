@@ -33,7 +33,6 @@ class Neighbor():
 
         self.send_dd_timers = {} # seq,send_dd_timer 邻居发送DD报文定时器
 
-        # TODO:不知道这几个要不要加锁
         # 连接状态重传列表，已经被洪泛，但还没有从邻接得到确认的 LSA 列表。将按间隔重发直至确认，或邻接消失
         self.link_state_retransmission_list = []
         # 数据库汇总列表，区域连接状态数据库中 LSA 的完整列表。在邻居进入数据库交换状态时，以 DD 包的形式向邻居发送此列表
@@ -41,10 +40,6 @@ class Neighbor():
         # 连接状态请求列表，需要从邻居接收，以同步两者之间连接状态数据库的 LSA 列表
         self.link_state_request_list = []
     
-    def add_list_state_request(self,lsa_header):
-        self.link_state_request_list.append(lsa_header)
-    
-
     # 初始化neighbor的数据库汇总列表
     def initDateBaseSummaryList(self):
         lock = self.hostInter.lsdb.lsa_lock
@@ -186,7 +181,34 @@ class Neighbor():
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event SeqNumberMismatch Pass\033[0m")
     
     def evnetExchangeDone(self):
-        pass
+        if self.state == NeighborState.S_Exchange:
+            # 如果邻居连接状态请求列表为空，则新的邻居状态为 Full
+            if len(self.link_state_request_list) == 0:
+                logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event evnetExchangeDone State {self.state.name} --> {NeighborState.S_Full.name}\033[0m")
+                self.state = NeighborState.S_Full
+
+                # 邻居路由器的状态达到 FULL 状态、或不再是FULL状态,生成Router_LSA
+                self.hostInter.router.genRouterLSAs()
+                # 此外，如果路由器是该网络的 DR 的话，还需要生成一个新的 Network-LSA
+                if self.hostInter.ip == self.hostInter.dr:
+                    self.hostInter.router.genNetworkLSAs()
+            # 开始发送LSR请求
+            else:
+                logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event evnetExchangeDone State {self.state.name} --> {NeighborState.S_Loading.name}\033[0m")
+                self.state = NeighborState.S_Loading
+                # TODO:发送LSR请求
+        else:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event evnetExchangeDone Pass\033[0m")
 
     def eventLoadingDone(self):
-        pass
+        if self.state == NeighborState.S_Loading:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventLoadingDone State {self.state.name} --> {NeighborState.S_Full.name}\033[0m")
+            self.state = NeighborState.S_Full
+
+            # 邻居路由器的状态达到 FULL 状态、或不再是FULL状态,生成Router_LSA
+            self.hostInter.router.genRouterLSAs()
+            # 此外，如果路由器是该网络的 DR 的话，还需要生成一个新的 Network-LSA
+            if self.hostInter.ip == self.hostInter.dr:
+                self.hostInter.router.genNetworkLSAs()
+        else:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventLoadingDone Pass\033[0m")

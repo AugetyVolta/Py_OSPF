@@ -78,9 +78,7 @@ class OSPF_LSAHeader(Packet):
     def extract_padding(self, s):
         return "", s
     
-    def post_build(self, p, pay):
-        pass
-        # TODO 计算checksum,len
+    # 不能写空的post_build
 
 class OSPF_RouterLSA_Item(Packet):
     name = "OSPF_RouterLSA_Item"

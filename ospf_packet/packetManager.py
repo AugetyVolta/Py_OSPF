@@ -4,7 +4,7 @@ from scapy.all import *
 # from ospf_neighbor.neighbor import Neighbor
 # from ospf_router.router import MyRouter
 from config import Config,NeighborState,InterfaceState,logger
-from ospf_packet.packet import OSPF_Header,OSPF_Hello,OSPF_DD,OSPF_LSR,OSPF_LSU,OSPF_LSAck
+from ospf_packet.packet import OSPF_Header,OSPF_Hello,OSPF_DD,OSPF_LSR,OSPF_LSU, OSPF_LSAHeader,OSPF_LSAck
 
 def sendHelloPackets(router, interface):
     timer = 0 # 使用这个可以快一点终止线程
@@ -104,10 +104,10 @@ def handleRecvDDPackets(neighbor,dd_packet):
         # 数据库中没有，或者数据库中的数据较旧
         lsa = interface.lsdb.getLSA(header.type,header.lsa_id,header.adv_router)
         if lsa == None:
-            neighbor.add_list_state_request(header)
+            neighbor.link_state_request_list.append(header)
             logger.debug(f"\033[1;32mLSA Need Req Type {header.type} LSA_id {header.lsa_id} Adv_router {header.adv_router}\033[0m")
         elif header.is_newer(lsa):
-            neighbor.add_list_state_request(header)
+            neighbor.link_state_request_list.append(header)
             logger.debug(f"\033[1;32mLSA Need update Type {header.type} LSA_id {header.lsa_id} Adv_router {header.adv_router}\033[0m")
 
     # 回复收到的DD报文
@@ -115,12 +115,81 @@ def handleRecvDDPackets(neighbor,dd_packet):
     if neighbor.is_master == False:
         # 将邻居数据结构中的DD序号加一
         neighbor.dd_sequence_number += 1
+        # 发送了全部的DD,并且收到了清除M位的包
+        # 这个和作为Slaver的不同,但是但是可以正确处理交换结束后从机发来的最后一个DD报文
+        # 此时所有的DD报文都被接收了
+        if len(neighbor.database_summary_list) == 0 and (dd_packet.flags & 0x02) == 0x00:
+            neighbor.evnetExchangeDone()
+            return
+        if Config.is_debug:
+            print(f"\033[1;32mCurrent Database Summary List\033[0m")
+            print(neighbor.database_summary_list)
+        # 否则发送DD报文
+        # 每次最多发送5个LSA Header报文
+        ospf_header = OSPF_Header(
+            version = 2,
+            type = 2,  # DD 包
+            router_id = interface.router.router_id,
+            area_id = interface.area_id,
+            autype = 0,
+            auth = 0
+        )
+        dd = OSPF_DD(
+            mtu=interface.mtu,
+            options=0x02,
+            flags=0x03, # I,M,MS,默认是M,MS
+            dd_sequence=neighbor.dd_sequence_number,
+            lsa_headers=[]
+        )
+        # DD报文最多携带5 LSA_Header
+        lsa_cnt = 0
+        while len(neighbor.database_summary_list) > 0 and lsa_cnt < 5:
+            dd.lsa_headers.append(neighbor.database_summary_list.pop())
+            lsa_cnt += 1
+        # 取消M标志位
+        if len(neighbor.database_summary_list) == 0:
+            dd.flags = 0x01
+        # 发送DD报文,并保存,需要重传
+        packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd
+        neighbor.last_send_dd_packet = packet
+        sendDDPackets(interface,neighbor,packet)
 
-    # Slaver
+    # Slaver,不需要设置重传,只需在收到重复DD包时重新传送上一个DD包
     elif neighbor.is_master == True:
         # 将接收包中的 DD 序号设定为邻居数据结构中的 DD 序列号
         neighbor.dd_sequence_number = dd_packet.dd_sequence
-
+        # 每次最多发送5个LSA Header报文
+        ospf_header = OSPF_Header(
+            version = 2,
+            type = 2,  # DD 包
+            router_id = interface.router.router_id,
+            area_id = interface.area_id,
+            autype = 0,
+            auth = 0
+        )
+        dd = OSPF_DD(
+            mtu=interface.mtu,
+            options=0x02,
+            flags=0x02, # I,M,MS,默认是M
+            dd_sequence=neighbor.dd_sequence_number,
+            lsa_headers=[]
+        )
+        # DD报文最多携带5 LSA_Header
+        lsa_cnt = 0
+        while len(neighbor.database_summary_list) > 0 and lsa_cnt < 5:
+            dd.lsa_headers.append(neighbor.database_summary_list.pop())
+            lsa_cnt += 1
+        # 取消M标志位
+        if len(neighbor.database_summary_list) == 0:
+            dd.flags = 0x00
+        # 发送DD报文,并保存,不设置重传
+        packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd
+        neighbor.last_send_dd_packet = packet
+        sendDDPackets(interface,neighbor,packet,need_retrans=False)
+        # 发送了全部的DD,并且收到了清除M位的包,这个顺序和主机不同,因为主机需要处理最后一个DD从机DD报文的接收
+        # 从机始终比主机早生成这一事件
+        if len(neighbor.database_summary_list) == 0 and (dd_packet.flags & 0x02) == 0x00:
+            neighbor.evnetExchangeDone()
 
 def handle_ospf_packets(packet, router, interface):
     ip_packet = packet[IP]
@@ -301,8 +370,8 @@ def handle_ospf_packets(packet, router, interface):
                         neighbor.send_dd_timers[neighbor.dd_sequence_number].cancel()
                         logger.debug(f"\033[1;32mRecieve Reply for DD Packet Seq {neighbor.dd_sequence_number}\033[0m")    
                         # 处理dd报文并回复
-                        handleRecvDDPackets(neighbor,dd_packet)
                         logger.debug(f"\033[1;32mRecieve handlable DD Packet Seq {dd_packet.dd_sequence}\033[0m")
+                        handleRecvDDPackets(neighbor,dd_packet)
                     else:
                         neighbor.eventSeqNumberMismatch()
                         return

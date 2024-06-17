@@ -81,7 +81,8 @@ class Interface():
             else:
                 logger.debug(f"\033[1;36mInterface {self.ip} Event BackupSeen State {self.state.name} --> {InterfaceState.S_DROther.name}\033[0m")
                 self.state = InterfaceState.S_DROther
-
+            # 接口状态改变,生成Router LSA
+            self.router.genRouterLSAs()
         else:
             logger.debug(f"\033[1;36mInterface {self.ip} Event BackupSeen Pass\033[0m")
     
@@ -100,7 +101,8 @@ class Interface():
             else:
                 logger.debug(f"\033[1;36mInterface {self.ip} Event NeighborChange State {self.state.name} --> {InterfaceState.S_DROther.name}\033[0m")
                 self.state = InterfaceState.S_DROther
-
+            # 接口状态改变,生成Router LSA
+            self.router.genRouterLSAs()
         else:
             logger.debug(f"\033[1;36mInterface {self.ip} Event NeighborChange Pass\033[0m")
 

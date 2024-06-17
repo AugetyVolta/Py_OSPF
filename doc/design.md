@@ -26,3 +26,6 @@ neighbor list 邻居的列表，但是通常只有一个，是对面的router id
 
 #### neighbor
 
+
+生成LSA实例的事件
+58页

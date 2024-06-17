@@ -1,8 +1,9 @@
 import psutil
 import ipaddress
-from config import InitialSequenceNumber
+from config import InitialSequenceNumber, InterfaceState, NetworkType
 from ospf_interface.interface import Interface
 from ospf_lsdatabase.lsdb import LSADataBase
+from ospf_packet.packet import OSPF_RouterLSA, OSPF_RouterLSA_Item
 
 def get_network_realInter():
     realInters = psutil.net_if_addrs()
@@ -60,3 +61,72 @@ class MyRouter():
             print()
         print("\033[1;32m==============================\033[0m")
     
+    def genRouterLSAs(self):
+        # 对于每一个区域生成Router_LSA
+        for area_id, lsdb in self.lsdbs.items():
+            # 生成RouterLSA
+            router_lsa = OSPF_RouterLSA(
+                age = 0,
+                options = 0x02,
+                type = 1, # router LSA
+                lsa_id = self.router_id, # 生成路由器的路由器标识
+                adv_router = self.router_id,
+                seq = self.lsa_seq,
+                flags = 0
+            )
+            # lsa序号增加
+            self.lsa_seq += 1
+             # 加入连接描述
+            for interface in self.interfaces.values():
+                # 如果所接入的网络不属于区域A,不修改
+                if area_id != interface.area_id:
+                    continue
+                # 如果接口状态为Down,不增加
+                elif interface.state == InterfaceState.S_Down:
+                    continue
+                # 如果是loopback
+                elif interface.state == InterfaceState.S_Loopback:
+                    #TODO:这个状态目前用不上
+                    pass 
+                # 广播,NBMA
+                elif interface.type == NetworkType.T_BROADCAST or interface.type == NetworkType.T_NBMA:
+                    link_dscription = OSPF_RouterLSA_Item(
+                        tos = 0,
+                        metric = interface.cost
+                    )
+                    if interface.state == InterfaceState.S_Waiting:
+                        link_dscription.type = 3
+                        link_dscription.link_id = calculate_network_address(interface.ip,interface.mask)
+                        link_dscription.link_data = interface.mask
+                    # 如果路由器与DR完全邻接，或路由器自身为DR且与至少一台其他路由器邻接
+                    # 在本项目中一定满足,因此可以直接else
+                    else:
+                        link_dscription.type = 2
+                        link_dscription.link_id = interface.dr 
+                        link_dscription.link_data = interface.ip
+                    # 加入到RouterLSA中
+                    router_lsa.lsa_routers.append(link_dscription)
+                    router_lsa.links += 1
+            # 计算校验和和长度
+            
+            # 加入到lsdb中
+            old_lsa = lsdb.getLSA(router_lsa.type,router_lsa.lsa_id,router_lsa.adv_router)
+            if old_lsa == None:
+                lsdb.addLSA(router_lsa)
+            elif router_lsa.is_newer(old_lsa):
+                lsdb.delLSA(old_lsa)
+                lsdb.addLSA(router_lsa)
+            
+            # 洪泛
+            # TODO: 先空着
+
+    def genNetworkLSAs(self):
+        pass
+
+def calculate_network_address(ip_str, netmask_str):
+        # 将IP地址和掩码转换为IPv4Address和IPv4Network对象
+        ip = ipaddress.IPv4Address(ip_str)
+        netmask = ipaddress.IPv4Network(f"0.0.0.0/{netmask_str}").netmask
+        # 计算网络地址
+        network_address = ipaddress.IPv4Address(int(ip) & int(netmask))
+        return str(network_address)

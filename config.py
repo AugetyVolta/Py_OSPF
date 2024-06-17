@@ -6,6 +6,7 @@ InitialSequenceNumber = 0x80000001 # 32位有符号数,TODO:这个值有待商�
 MaxSequenceNumber = 0x7fffffff # 32位有符号数
 MaxAge = 3600 # 单位是s
 MaxAgeDiff = 900 # 单位是s
+LSRefreshTime = 1800
 
 "network type"
 class NetworkType(Enum):

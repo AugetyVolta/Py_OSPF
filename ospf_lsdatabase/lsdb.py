@@ -21,13 +21,11 @@ class LSADataBase():
     # 添加lsa，a）在洪泛过程中接收（见第 13 章）；b）路由器自己生成（见第 12.4 节）
     def addLSA(self,lsa):
         self.lsa_lock.acquire()
-
+        self.LSAs.append(lsa)
         self.lsa_lock.release()
-        pass
 
     # 删除LSA
-    def delLSA(self):
+    def delLSA(self,lsa):
         self.lsa_lock.acquire()
-
+        self.LSAs.remove(lsa)
         self.lsa_lock.release()
-        pass
