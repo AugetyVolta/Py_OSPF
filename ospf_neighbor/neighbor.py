@@ -59,11 +59,32 @@ class Neighbor():
             if lsa_header.age == MaxAge:
                 pass
                 # TODO:加入重传列表,还没想好如何处理
+                self.link_state_retransmission_list.append(lsa_header)
             else:
                 self.database_summary_list.append(lsa_header)
         lock.release()
         logger.debug(f"\033[1;32mNeighbor {self.id} Ip {self.ip} initDateBaseSummaryList\033[0m")
-
+    
+    # 处理LSAck中的确认
+    def handleLsaAck(self,type,lsa_id,adv_router,Implicit = False):
+        for lsa_header in self.link_state_retransmission_list:
+            if lsa_header.type == type and lsa_header.lsa_id == lsa_id and \
+            lsa_header.adv_router == adv_router:
+                self.link_state_retransmission_list.remove(lsa_header)
+                if Implicit:
+                    logger.debug(f"\033[1;32mImplicit Ack for LSA Type {lsa_header.type} Lsa_id {lsa_header.lsa_id} Adv_router {lsa_header.router_id}\033[0m")
+                else:
+                    logger.debug(f"\033[1;32mRecieve Ack for LSA Type {lsa_header.type} Lsa_id {lsa_header.lsa_id} Adv_router {lsa_header.router_id}\033[0m")
+                return
+    
+    # 查找重传表中是否有LSA
+    def findLSAInRetransList(self,type,lsa_id,adv_router):
+        for lsa_header in self.link_state_retransmission_list:
+            if lsa_header.type == type and lsa_header.lsa_id == lsa_id and \
+            lsa_header.adv_router == adv_router:
+                return True
+        return False
+        
     # 从邻居接收到一个 Hello 包
     def eventHelloReceived(self):
         if self.state == NeighborState.S_Down:
@@ -212,3 +233,6 @@ class Neighbor():
                 self.hostInter.router.genNetworkLSAs(self.hostInter)
         else:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventLoadingDone Pass\033[0m")
+
+    def eventBadLSReq(self):
+        pass

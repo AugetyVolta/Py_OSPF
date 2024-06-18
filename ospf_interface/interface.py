@@ -1,3 +1,4 @@
+import threading
 from config import NeighborState, NetworkType,InterfaceState,logger
 from ospf_neighbor.neighbor import Neighbor
 import ipaddress
@@ -5,7 +6,7 @@ import ipaddress
 class Interface():
     def __init__(self, ip, router, mask = "255.255.255.0", area_id = "0.0.0.0"):
         self.type = NetworkType.T_BROADCAST
-        self.state = InterfaceState.S_Waiting
+        self.state = InterfaceState.S_Down
         
         # string, 使用ipaddress方法转
         self.ip = ip
@@ -41,6 +42,11 @@ class Interface():
         # 接口使用的Lsdb
         self.lsdb = None
 
+        # DR,BDR选举timer
+        self.waitTimer = threading.Timer(self.hello_interval,self.eventWaitTimer)
+        # 接口启动
+        self.eventInterfaceUp()
+
     def addNeighbor(self,ip):
         neighbor = Neighbor(ip,self)
         self.neighbors[ip] = neighbor
@@ -63,14 +69,34 @@ class Interface():
         print(f"neighbors : {[(ip,n.state.name,n.is_master,n.dd_sequence_number) for ip,n in self.neighbors.items()]}")
 
     def eventInterfaceUp(self):
-        pass# TODO
+        if self.state == InterfaceState.S_Down:
+            logger.debug(f"\033[1;36mInterface {self.ip} Event eventInterfaceUp State {self.state.name} --> {InterfaceState.S_Waiting.name}\033[0m")
+            self.state = InterfaceState.S_Waiting
+            # 开启waitTimer计时器
+            self.waitTimer.start()
 
+    # 选举DR,BDR前的等待时间,到时间就自己选举DR,BDR
     def eventWaitTimer(self):
-        pass# TODO
+        self.waitTimer.cancel()
+        if self.state == InterfaceState.S_Waiting:
+            # 选举DR,BDR
+            self.selectDR_BDR()
+            if self.ip == self.dr:
+                logger.debug(f"\033[1;36mInterface {self.ip} Event eventWaitTimer State {self.state.name} --> {InterfaceState.S_DR.name}\033[0m")
+                self.state = InterfaceState.S_DR
+            elif self.ip == self.bdr:
+                logger.debug(f"\033[1;36mInterface {self.ip} Event eventWaitTimer State {self.state.name} --> {InterfaceState.S_Backup.name}\033[0m")
+                self.state = InterfaceState.S_Backup
+            else:
+                logger.debug(f"\033[1;36mInterface {self.ip} Event eventWaitTimer State {self.state.name} --> {InterfaceState.S_DROther.name}\033[0m")
+                self.state = InterfaceState.S_DROther
+            # 接口状态改变,生成Router LSA
+            self.router.genRouterLSAs()
 
     def eventBackupSeen(self):
         if self.state == InterfaceState.S_Waiting:
-            # 选举DR,BDR
+            # 选举DR,BDR,如果没有被选举,就取消waitTimer
+            self.waitTimer.cancel()
             self.selectDR_BDR()
             if self.ip == self.dr:
                 logger.debug(f"\033[1;36mInterface {self.ip} Event BackupSeen State {self.state.name} --> {InterfaceState.S_DR.name}\033[0m")
@@ -90,7 +116,8 @@ class Interface():
         if self.state == InterfaceState.S_DR or \
             self.state == InterfaceState.S_Backup or \
             self.state == InterfaceState.S_DROther:
-            # 选举DR,BDR
+            # 选举DR,BDR,如果没有被选举,就取消waitTimer
+            self.waitTimer.cancel()
             self.selectDR_BDR()
             if self.ip == self.dr:
                 logger.debug(f"\033[1;36mInterface {self.ip} Event NeighborChange State {self.state.name} --> {InterfaceState.S_DR.name}\033[0m")
@@ -167,10 +194,16 @@ class Interface():
             final_dr = final_bdr
         
         # (4)如果路由器 X 新近成为 DR 或 BDR，或者不再成为 DR 或 BDR,重复2和3
-        if (self.ip == self.dr) != (self.ip == final_dr.ip) or (self.ip == self.bdr) != (self.ip == final_bdr.ip):
-            pass
-            # TODO:重复选举
-        
+        # if (self.ip == self.dr) != (self.ip == final_dr.ip) or (self.ip == self.bdr) != (self.ip == final_bdr.ip):
+        #     pass
+        # TODO:重复选举,使得dr不等于bdr,暂时不写
+        if final_dr == None:
+            final_dr = my_self_neighbor
+        if final_bdr == None:
+            final_bdr = Neighbor(ip="0.0.0.0",hostInter=self)
+        if final_dr == final_bdr:
+            final_bdr = Neighbor(ip="0.0.0.0",hostInter=self)
+
         # (5)设置接口的DR,BDR
         self.dr = final_dr.ip
         self.bdr = final_bdr.ip

@@ -1,5 +1,6 @@
 import psutil
 import ipaddress
+from scapy.all import *
 from config import InitialSequenceNumber, InterfaceState, NeighborState, NetworkType,logger,Config
 from ospf_interface.interface import Interface
 from ospf_lsdatabase.lsdb import LSADataBase
@@ -111,6 +112,7 @@ class MyRouter():
             # 计算校验和和长度
             # TODO:计算校验和
             router_lsa.len = 24 + 12 * router_lsa.links
+            router_lsa.checksum = calculate_Fletcher_checksum(raw(router_lsa)[2:],15)
             # 加入到lsdb中
             old_lsa = lsdb.getLSA(router_lsa.type,router_lsa.lsa_id,router_lsa.adv_router)
             if old_lsa == None:
@@ -158,8 +160,8 @@ class MyRouter():
                 )
             )
         # 计算校验和和len
-        # TODO:计算校验和
         network_lsa.len = 24 + 4 * len(network_lsa.attached_routers)
+        network_lsa.checksum = calculate_Fletcher_checksum(raw(network_lsa)[2:],15)
         # 加入lsdb中
         old_lsa = lsdb.getLSA(network_lsa.type,network_lsa.lsa_id,network_lsa.adv_router)
         if old_lsa == None:
@@ -184,3 +186,26 @@ def calculate_network_address(ip_str, netmask_str):
         # 计算网络地址
         network_address = ipaddress.IPv4Address(int(ip) & int(netmask))
         return str(network_address)
+
+def calculate_Fletcher_checksum(bytes,n):
+    C0 = 0
+    C1 = 0
+    L = len(bytes)
+    # 处理每个八位字节
+    for i in range(L):
+        C0 = (C0 + bytes[i]) % 255
+        C1 = (C1 + C0) % 255
+        if C0 < 0:
+            C0 += 255
+        if C1 < 0:
+            C1 += 255
+    
+    X = (-C1 + (L - n) * C0) % 255
+    Y = (C1 - (L - n + 1) * C0) % 255
+
+    # 如果 X 或 Y 为负数，调整为正数
+    if X < 0:
+        X += 255
+    if Y < 0:
+        Y += 255
+    return (X << 8) | Y 

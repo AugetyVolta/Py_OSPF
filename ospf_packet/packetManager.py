@@ -3,8 +3,8 @@ from scapy.all import *
 # from ospf_interface.interface import Interface
 # from ospf_neighbor.neighbor import Neighbor
 # from ospf_router.router import MyRouter
-from config import Config,NeighborState,InterfaceState,logger
-from ospf_packet.packet import OSPF_Header,OSPF_Hello,OSPF_DD,OSPF_LSR,OSPF_LSU, OSPF_LSAHeader,OSPF_LSAck
+from config import Config, MaxAge,NeighborState,InterfaceState,logger
+from ospf_packet.packet import OSPF_Header,OSPF_Hello,OSPF_DD,OSPF_LSR,OSPF_LSU, OSPF_LSAHeader,OSPF_LSAck, OSPF_LSR_Item
 
 def sendHelloPackets(router, interface):
     timer = 0 # 使用这个可以快一点终止线程
@@ -26,7 +26,7 @@ def sendHelloPackets(router, interface):
                 router_dead_interval = interface.router_dead_interval,
                 designated_router = interface.dr,
                 backup_designated_router = interface.bdr,
-                neighbors = list(interface.neighbors.keys())
+                neighbors = [neighbor.id for neighbor in interface.neighbors.values()] # 注意，是邻居的router id # list(interface.neighbors.keys())
             )
 
             hello_packet = IP(src=interface.ip, dst="224.0.0.5", ttl=1) / ospf_header / hello_packet
@@ -297,7 +297,7 @@ def handle_ospf_packets(packet, router, interface):
                 continue
             # 2Way
             elif neighbor.state == NeighborState.S_2Way:
-                logger.debug("\033[1;31mOSPF DD Packet Ignored\033[0m")
+                logger.debug("\033[1;31mOSPF DD Packet Ignored 2Way\033[0m")
                 return
             # Exstart
             elif neighbor.state == NeighborState.S_Exstart:
@@ -333,12 +333,12 @@ def handle_ospf_packets(packet, router, interface):
                     neighbor.eventNegotiationDone()
                     continue # 此时无论LSA_Headers里面有无东西,都需要处理,对应RT2的exchange,可能还要接着发
                 else:        
-                    logger.debug("\033[1;31mOSPF DD Packet Ignored\033[0m")
+                    logger.debug("\033[1;31mOSPF DD Packet Ignored ExStart\033[0m")
                     return
             # Exchange
             elif neighbor.state == NeighborState.S_Exchange:
                 # 从机收到重复的 DD 包时，则应当重发前一个 DD 包
-                if is_dup:
+                if is_dup and not neighbor.recvAnyWay: # 必须加这个,不能因为重复导致了问题,Dup是在所有的包处理之前判断的,因此不知道是否包被有效处理
                     if neighbor.is_master:
                         if neighbor.last_send_dd_packet != None:
                             send(neighbor.last_send_dd_packet, verbose=False)
@@ -390,9 +390,124 @@ def handle_ospf_packets(packet, router, interface):
             break
     # LSR
     elif OSPF_Header in packet and packet[OSPF_Header].type == 3:
-        pass
-        
+        ospf_header = packet[OSPF_Header]
+        lsr_packet = packet[OSPF_LSR]
+        neighbor = interface.getNeighbor(src_ip)
 
+        logger.debug("\033[1;36mReceived OSPF LSR Packet:\033[0m")
+        logger.debug(f"Num of LSA Requests: {len(lsr_packet.lsa_requests)}")
+        if Config.is_debug:
+            for lsr_item in lsr_packet.lsa_requests:
+                lsr_item.show()
+        # 在邻居状态为Exchange、Loading 或 Full时，应当接收 LSR 包
+        if neighbor.state.value >= NeighborState.S_Exchange.value:
+            lsdb = interface.lsdb
+            ospf_header = OSPF_Header(
+                version = 2,
+                type = 4,  # LSU 包
+                router_id = interface.router.router_id,
+                area_id = interface.area_id,
+                autype = 0,
+                auth = 0
+            )
+            lsu_packet = OSPF_LSU(
+                num_lsa = 0,
+                lsa_list = []  
+            )
+            for lsr_item in lsr_packet.lsa_requests:
+                lsa = lsdb.getLSA(lsr_item.type,lsr_item.lsa_id,lsr_item.adv_router)
+                # 如果某个LSA没有在数据库中被找到, 生成BadLSReq
+                if lsa == None:
+                    neighbor.eventBadLSReq()
+                else:
+                    lsu_packet.lsa_list.append(lsa)
+                    lsu_packet.num_lsa += 1
+            packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / lsu_packet
+            logger.debug(f"\033[1;32mReply to LSR, Send LSU Packet\033[0m")
+            if Config.is_debug:
+                packet.show()
+            send(packet, verbose=False)
+        else:
+            logger.debug("\033[1;36OSPF LSR Packet Ignored\033[0m")
+
+    # LSU
+    elif OSPF_Header in packet and packet[OSPF_Header].type == 4:
+        ospf_header = packet[OSPF_Header]
+        lsu_packet = packet[OSPF_LSU]
+        neighbor = interface.getNeighbor(src_ip)
+
+        logger.debug("\033[1;36mReceived OSPF LSU Packet:\033[0m")
+        logger.debug(f"Num of LSA: {lsu_packet.num_lsa}")
+        if Config.is_debug:
+            for lsa in lsu_packet.lsa_list:
+                lsa.show()
+        for lsa in lsu_packet.lsa_list:
+            # 处理LSU中的LSA
+            # (1) 确认LSA的LS校验和,错误丢弃
+            pass # TODO
+            
+            # (2) 检查 LSA 的 LS 类型。如果 LS 类型为未知，丢弃该 LSA
+            if not 1<= lsa.type <= 5:
+                logger.debug("\033[1;31mLSA Unknown Type\033[0m")
+                return
+            # (3)AS-external-LSA,暂时不管
+            pass
+            # (4) TODO 如果 LSA 的 LS 时限等于 MaxAge，而且路由器的连接状态数据库中没有该LSA的实例，而且路由器的邻居都不处于Exchange或Loading状态
+
+            # (5) 在路由器当前的连接状态数据库中查找该 LSA 的实例。如果没有找到数据库中的副本，或所接收的 LSA 比数据库副本新
+            lsdb = interface.lsdb
+            old_lsa = lsdb.getLSA(lsa.type,lsa.lsa_id,lsa.adv_router)
+            if old_lsa == None or lsa.is_newer(old_lsa):
+                # (a)
+                # (b)
+                # (c)
+
+                # (d)删除旧的LSA,添加新的LSA
+                if old_lsa != None:
+                    lsdb.delLSA(old_lsa)
+                lsdb.addLSA(lsa)
+                # (e) TODO 发送LSAck回复 
+                # (f) TODO 接收自生成的LSA 
+
+                return
+            # (6)
+            # (7) 接收的 LSA 与数据库副本为同一实例（没有哪个较新）
+            if not lsa.is_newer(old_lsa):
+                # 如果 LSA 在所接收邻居的连接状态重传列表上，表示路由器自身正期待着这一LSA的确认。路由器可以将这一LSA作为确认，并将其从连接状态重传列表中去除
+                if neighbor.findLSAInRetransList(lsa.type,lsa.lsa_id,lsa.adv_router):
+                    neighbor.handleLsaAck(lsa.type,lsa.lsa_id,lsa.adv_router,Implicit = True)
+                # 也许需要从接收接口发送LSAck包以确认所收到的LSA
+                else:
+                    pass
+                    # TODO
+                
+                return
+            # (8) 
+
+
+        # 洪泛转发
+        # TODO
+
+    # LSAck
+    elif OSPF_Header in packet and packet[OSPF_Header].type == 5:
+        ospf_header = packet[OSPF_Header]
+        ls_ack = packet[OSPF_LSAck]
+        neighbor = interface.getNeighbor(src_ip)
+
+        logger.debug("\033[1;36mReceived OSPF LSAck Packet:\033[0m")
+        logger.debug(f"Num of LSA Headers: {len(ls_ack.lsa_headers)}")
+        if Config.is_debug:
+            for lsa_header in ls_ack.lsa_headers:
+                lsa_header.show()
+
+        # 如果所关联的邻居状态小于 Exchange，则丢弃该 LSAck 包
+        if neighbor.state.value < NeighborState.S_Exchange.value:
+            logger.debug("\033[1;32mOSPF LSAck Packet Ignored\033[0m")
+            return
+        else:
+            # 对于LSAck包中的每个确认, 检查是否在重传列表中, 如果在就删除
+            for lsa_header in ls_ack.lsa_headers:
+                neighbor.handleLsaAck(lsa_header.type,lsa_header.lsa_id,lsa_header.adv_router)
 
 def recvPackets(router, interface):
     while not Config.is_stop:
