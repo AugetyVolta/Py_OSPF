@@ -71,6 +71,50 @@ def sendEmptyDDPackets(neighbor):
     neighbor.send_dd_timers[dd_packet.dd_sequence] = timer
     timer.start()
 
+def sendLSRPackets(neighbor):
+    if neighbor.state == NeighborState.S_Exchange or \
+        neighbor.state == NeighborState.S_Loading:
+        interface = neighbor.hostInter
+        # 在exchange和loading状态才发LSR
+        if len(neighbor.link_state_request_list) != 0: 
+            ospf_header = OSPF_Header(
+                version = 2,
+                type = 3,  # LSR 包
+                router_id = interface.router.router_id,
+                area_id = interface.area_id,
+                autype = 0,
+                auth = 0
+            )
+            lsr_packet = OSPF_LSR()
+            for req in neighbor.link_state_request_list:
+                lsr_packet.lsa_requests.append(
+                    OSPF_LSR_Item(
+                        type = req.type,
+                        lsa_id = req.lsa_id,
+                        adv_router = req.adv_router
+                    )
+                )
+            lsr_packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / lsr_packet
+            send(lsr_packet, verbose=False)
+            logger.debug(f"\033[1;32mSendLSRPackets : send success!\033[0m")
+            if Config.is_debug:
+                lsr_packet.show()
+
+        # 当邻居状态为 Loading 而连接状态请求列表为空时,生成LoadingDone事件
+        elif neighbor.state == NeighborState.S_Loading:
+            neighbor.eventLoadingDone()
+            return
+        
+        # 检查定时器是否存在，如果存在则取消
+        if neighbor.send_lsr_timer != None:
+            neighbor.send_lsr_timer.cancel()
+
+        # 创建新的定时器
+        timer = threading.Timer(interface.rxmt_interval,sendLSRPackets,(neighbor,))
+        neighbor.send_lsr_timer = timer
+        timer.start()    
+
+
 def sendDDPackets(interface,neighbor,dd_packet,need_retrans=True):
     # 保存发送的DD packet
     neighbor.last_send_dd_packet = dd_packet
@@ -441,36 +485,72 @@ def handle_ospf_packets(packet, router, interface):
         if Config.is_debug:
             for lsa in lsu_packet.lsa_list:
                 lsa.show()
+        # 连接状态数据库
+        lsdb = interface.lsdb
+        interface = neighbor.hostInter
+        ospf_header = OSPF_Header(
+            version = 2,
+            type = 5,  # LSAck 包
+            router_id = interface.router.router_id,
+            area_id = interface.area_id,
+            autype = 0,
+            auth = 0
+        )
+        lsack = OSPF_LSAck()
         for lsa in lsu_packet.lsa_list:
             # 处理LSU中的LSA
             # (1) 确认LSA的LS校验和,错误丢弃
-            pass # TODO
-            
+            if calculate_Fletcher_checksum(raw(lsa)[2:],15) != 0:
+                logger.debug("\033[1;31mLSA CheckSum Error\033[0m")
+                if Config.is_debug:
+                    lsa.show()
+                continue
             # (2) 检查 LSA 的 LS 类型。如果 LS 类型为未知，丢弃该 LSA
             if not 1<= lsa.type <= 5:
                 logger.debug("\033[1;31mLSA Unknown Type\033[0m")
-                return
+                if Config.is_debug:
+                    lsa.show()
+                continue
             # (3)AS-external-LSA,暂时不管
             pass
             # (4) TODO 如果 LSA 的 LS 时限等于 MaxAge，而且路由器的连接状态数据库中没有该LSA的实例，而且路由器的邻居都不处于Exchange或Loading状态
+            if lsa.age == MaxAge and lsdb.getLSA(lsa.type,lsa.lsa_id,lsa.adv_router) == None and\
+                neighbor.state != NeighborState.S_Exchange and neighbor.state != NeighborState.S_Loading:
+                # (a) 通过发送一个 LSAck 包到发送的邻居（见第 13.5 节）来确认收到该 LSA
 
+                # (b) 丢弃该 LSA
+                continue
             # (5) 在路由器当前的连接状态数据库中查找该 LSA 的实例。如果没有找到数据库中的副本，或所接收的 LSA 比数据库副本新
-            lsdb = interface.lsdb
             old_lsa = lsdb.getLSA(lsa.type,lsa.lsa_id,lsa.adv_router)
             if old_lsa == None or lsa.is_newer(old_lsa):
                 # (a)
                 # (b)
-                # (c)
-
-                # (d)删除旧的LSA,添加新的LSA
+                # (c)将当前数据库中的副本，从所有的邻居连接状态重传列表中删除
                 if old_lsa != None:
                     lsdb.delLSA(old_lsa)
+                for n in interface.neighbors.values():
+                    n.delLSAInInRetransList(lsa.type,lsa.lsa_id,lsa.adv_router)
+                # (d)删除旧的LSA,添加新的LSA
                 lsdb.addLSA(lsa)
                 # (e) TODO 发送LSAck回复 
                 # (f) TODO 接收自生成的LSA 
+                lsack.lsa_headers.append(
+                    OSPF_LSAHeader(
+                        age = lsa.age,
+                        options = lsa.options,
+                        type = lsa.type,
+                        lsa_id = lsa.lsa_id,
+                        adv_router = lsa.adv_router,
+                        seq = lsa.seq,
+                        checksum = lsa.checksum,
+                        len = lsa.len 
+                    )
+                )
+                neighbor.delLSAInReqList(lsa.type,lsa.lsa_id,lsa.adv_router)
+                continue
+            # (6) 如果该 LSA 的实例正在邻居的连接状态请求列表上，产生数据库交换过程的错误
 
-                return
-            # (6)
+
             # (7) 接收的 LSA 与数据库副本为同一实例（没有哪个较新）
             if not lsa.is_newer(old_lsa):
                 # 如果 LSA 在所接收邻居的连接状态重传列表上，表示路由器自身正期待着这一LSA的确认。路由器可以将这一LSA作为确认，并将其从连接状态重传列表中去除
@@ -480,9 +560,26 @@ def handle_ospf_packets(packet, router, interface):
                 else:
                     pass
                     # TODO
+                    lsack.lsa_headers.append(
+                        OSPF_LSAHeader(
+                            age = lsa.age,
+                            options = lsa.options,
+                            type = lsa.type,
+                            lsa_id = lsa.lsa_id,
+                            adv_router = lsa.adv_router,
+                            seq = lsa.seq,
+                            checksum = lsa.checksum,
+                            len = lsa.len 
+                        )
+                    )
                 
-                return
+                continue
             # (8) 
+        packet = IP(src=interface.ip, dst="224.0.0.5", ttl=1) / ospf_header / lsack
+        logger.debug(f"\033[1;32mLSAck\033[0m")
+        if Config.is_debug:
+            packet.show()
+        send(packet, verbose=False)
 
 
         # 洪泛转发
@@ -512,6 +609,30 @@ def handle_ospf_packets(packet, router, interface):
 def recvPackets(router, interface):
     while not Config.is_stop:
         sniff(filter="ip proto 89", prn=lambda packet: handle_ospf_packets(packet, router, interface), timeout=1)
+
+def calculate_Fletcher_checksum(bytes,n):
+    C0 = 0
+    C1 = 0
+    L = len(bytes)
+    # 处理每个八位字节
+    for i in range(L):
+        C0 = (C0 + bytes[i]) % 255
+        C1 = (C1 + C0) % 255
+        if C0 < 0:
+            C0 += 255
+        if C1 < 0:
+            C1 += 255
+    
+    X = (-C1 + (L - n) * C0) % 255
+    Y = (C1 - (L - n + 1) * C0) % 255
+
+    # 如果 X 或 Y 为负数，调整为正数
+    if X < 0:
+        X += 255
+    if Y < 0:
+        Y += 255
+
+    return (X << 8) | Y
 
 # 绑定 IP 层和 OSPF 层
 bind_layers(IP, OSPF_Header, proto=89)

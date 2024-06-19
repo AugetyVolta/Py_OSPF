@@ -42,7 +42,8 @@ class MyRouter():
                 if interface_name != 'lo' and address.family.name == "AF_INET":
                     interfaces[address.address] = Interface(ip=address.address, 
                                                                  mask=address.netmask,
-                                                                 router=self)
+                                                                 router=self,
+                                                                 ethname=interface_name)
         return interfaces
 
     def initLSDataBase(self):
@@ -110,7 +111,6 @@ class MyRouter():
                     router_lsa.lsa_routers.append(link_dscription)
                     router_lsa.links += 1
             # 计算校验和和长度
-            # TODO:计算校验和
             router_lsa.len = 24 + 12 * router_lsa.links
             router_lsa.checksum = calculate_Fletcher_checksum(raw(router_lsa)[2:],15)
             # 加入到lsdb中

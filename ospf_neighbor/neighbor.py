@@ -1,7 +1,7 @@
 import threading
 from config import MaxAge, NetworkType,NeighborState,logger
 from ospf_packet.packet import OSPF_LSAHeader
-from ospf_packet.packetManager import sendEmptyDDPackets
+from ospf_packet.packetManager import sendEmptyDDPackets, sendLSRPackets
 
 class Neighbor():
     def __init__(self,ip,hostInter):
@@ -32,6 +32,7 @@ class Neighbor():
         self.hostInter = hostInter
 
         self.send_dd_timers = {} # seq,send_dd_timer 邻居发送DD报文定时器
+        self.send_lsr_timer = None
 
         # 连接状态重传列表，已经被洪泛，但还没有从邻接得到确认的 LSA 列表。将按间隔重发直至确认，或邻接消失
         self.link_state_retransmission_list = []
@@ -84,7 +85,22 @@ class Neighbor():
             lsa_header.adv_router == adv_router:
                 return True
         return False
-        
+    
+    # 删除重传表中的LSA
+    def delLSAInInRetransList(self,type,lsa_id,adv_router):
+        for lsa_header in self.link_state_retransmission_list:
+            if lsa_header.type == type and lsa_header.lsa_id == lsa_id and \
+            lsa_header.adv_router == adv_router:
+                self.link_state_retransmission_list.remove(lsa_header)
+                return
+    
+    def delLSAInReqList(self,type,lsa_id,adv_router):
+        for lsa_header in self.link_state_request_list:
+            if lsa_header.type == type and lsa_header.lsa_id == lsa_id and \
+            lsa_header.adv_router == adv_router:
+                self.link_state_request_list.remove(lsa_header)
+                return
+            
     # 从邻居接收到一个 Hello 包
     def eventHelloReceived(self):
         if self.state == NeighborState.S_Down:
@@ -217,7 +233,8 @@ class Neighbor():
             else:
                 logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event evnetExchangeDone State {self.state.name} --> {NeighborState.S_Loading.name}\033[0m")
                 self.state = NeighborState.S_Loading
-                # TODO:发送LSR请求
+                # 发送LSR请求
+                sendLSRPackets(self)
         else:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event evnetExchangeDone Pass\033[0m")
 
@@ -235,4 +252,16 @@ class Neighbor():
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventLoadingDone Pass\033[0m")
 
     def eventBadLSReq(self):
-        pass
+        if self.state.value >= NeighborState.S_Exchange.value:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventBadLSReq State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
+            self.state = NeighborState.S_Exstart
+            # TODO:清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
+
+            # 设置邻居的序号
+            self.dd_sequence_number = 114514
+            self.is_master = False
+            
+            # 开始发空DD报文
+            sendEmptyDDPackets(self)
+        else:
+            logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventBadLSReq Pass\033[0m")

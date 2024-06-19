@@ -4,11 +4,12 @@ from ospf_neighbor.neighbor import Neighbor
 import ipaddress
 
 class Interface():
-    def __init__(self, ip, router, mask = "255.255.255.0", area_id = "0.0.0.0"):
+    def __init__(self, ip, router, ethname = "ens33",mask = "255.255.255.0", area_id = "0.0.0.0"):
         self.type = NetworkType.T_BROADCAST
         self.state = InterfaceState.S_Down
         
         # string, 使用ipaddress方法转
+        self.ethname = ethname
         self.ip = ip
         self.mask = mask
         self.area_id = area_id
