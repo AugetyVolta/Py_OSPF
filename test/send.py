@@ -25,8 +25,8 @@ def create_ospf_hello():
         autype=0,
         auth=0
     )
-    
-    packet = IP(dst="224.0.0.5", src="192.168.60.3",ttl=1) / ospf / hello
+    eth = Ether()
+    packet = eth / IP(dst="224.0.0.5", src="192.168.60.3",ttl=1) / ospf / hello
     return packet
 
 def create_ospf_dd():
@@ -76,8 +76,8 @@ def create_ospf_dd():
     print("\n每个 LSAHeader 的字段值：")
     for lsa_header in dd_packet.lsa_headers:
         lsa_header.show()
-    
-    packet = IP(src="192.168.60.3", dst="192.168.60.4") / ospf / dd_packet
+    eth = Ether()
+    packet = eth / IP(src="192.168.60.3", dst="192.168.60.4") / ospf / dd_packet
     return packet
 
 # 绑定 IP 层和 OSPF 层

@@ -28,9 +28,9 @@ def sendHelloPackets(router, interface):
                 backup_designated_router = interface.bdr,
                 neighbors = [neighbor.id for neighbor in interface.neighbors.values()] # 注意，是邻居的router id # list(interface.neighbors.keys())
             )
-
-            hello_packet = IP(src=interface.ip, dst="224.0.0.5", ttl=1) / ospf_header / hello_packet
-            send(hello_packet, verbose=False)
+            eth = Ether()
+            hello_packet = eth / IP(src=interface.ip, dst="224.0.0.5", ttl=1) / ospf_header / hello_packet
+            sendp(hello_packet, verbose=False, iface=interface.ethname)
 
             logger.debug("\033[1;32mSendHelloPacket: send success!\033[0m")
 
@@ -55,11 +55,12 @@ def sendEmptyDDPackets(neighbor):
         flags=0x07, # I,M,MS
         dd_sequence=neighbor.dd_sequence_number,
         lsa_headers=[]
-    )      
-    dd_packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd_packet
+    )
+    eth = Ether()      
+    dd_packet = eth / IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd_packet
     # 保存上一次发送的DD报文
     neighbor.last_send_dd_packet = dd_packet
-    send(dd_packet, verbose=False)
+    sendp(dd_packet, verbose=False, iface=interface.ethname)
     logger.debug(f"\033[1;32mSendEmptyDDPacket Seq {neighbor.dd_sequence_number}: send success!\033[0m")
 
     # 检查定时器是否存在，如果存在则取消
@@ -94,8 +95,9 @@ def sendLSRPackets(neighbor):
                         adv_router = req.adv_router
                     )
                 )
-            lsr_packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / lsr_packet
-            send(lsr_packet, verbose=False)
+            eth = Ether()
+            lsr_packet = eth / IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / lsr_packet
+            sendp(lsr_packet, verbose=False, iface=interface.ethname)
             logger.debug(f"\033[1;32mSendLSRPackets : send success!\033[0m")
             if Config.is_debug:
                 lsr_packet.show()
@@ -118,7 +120,7 @@ def sendLSRPackets(neighbor):
 def sendDDPackets(interface,neighbor,dd_packet,need_retrans=True):
     # 保存发送的DD packet
     neighbor.last_send_dd_packet = dd_packet
-    send(dd_packet, verbose=False)
+    sendp(dd_packet, verbose=False, iface=interface.ethname)
     logger.debug(f"\033[1;32mSendDDPacket Seq {dd_packet.dd_sequence}\033[0m")
     if Config.is_debug:
         dd_packet.show()
@@ -194,7 +196,8 @@ def handleRecvDDPackets(neighbor,dd_packet):
         if len(neighbor.database_summary_list) == 0:
             dd.flags = 0x01
         # 发送DD报文,并保存,需要重传
-        packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd
+        eth = Ether()
+        packet = eth / IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd
         neighbor.last_send_dd_packet = packet
         sendDDPackets(interface,neighbor,packet)
 
@@ -227,7 +230,8 @@ def handleRecvDDPackets(neighbor,dd_packet):
         if len(neighbor.database_summary_list) == 0:
             dd.flags = 0x00
         # 发送DD报文,并保存,不设置重传
-        packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd
+        eth = Ether()
+        packet = eth / IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / dd
         neighbor.last_send_dd_packet = packet
         sendDDPackets(interface,neighbor,packet,need_retrans=False)
         # 发送了全部的DD,并且收到了清除M位的包,这个顺序和主机不同,因为主机需要处理最后一个DD从机DD报文的接收
@@ -385,7 +389,7 @@ def handle_ospf_packets(packet, router, interface):
                 if is_dup and not neighbor.recvAnyWay: # 必须加这个,不能因为重复导致了问题,Dup是在所有的包处理之前判断的,因此不知道是否包被有效处理
                     if neighbor.is_master:
                         if neighbor.last_send_dd_packet != None:
-                            send(neighbor.last_send_dd_packet, verbose=False)
+                            sendp(neighbor.last_send_dd_packet, verbose=False, iface=interface.ethname)
                             logger.debug("\033[1;32mRetransmit Last DD Packet\033[0m")
                         return
                 else:
@@ -428,7 +432,7 @@ def handle_ospf_packets(packet, router, interface):
                 # 从机重发前一个DD包
                 if is_dup and neighbor.is_master:
                     if neighbor.last_send_dd_packet != None:
-                        send(neighbor.last_send_dd_packet, verbose=False)
+                        sendp(neighbor.last_send_dd_packet, verbose=False, iface=interface.ethname)
                         logger.debug("\033[1;32mRetransmit Last DD Packet\033[0m")
             # 跳出循环
             break
@@ -466,11 +470,12 @@ def handle_ospf_packets(packet, router, interface):
                 else:
                     lsu_packet.lsa_list.append(lsa)
                     lsu_packet.num_lsa += 1
-            packet = IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / lsu_packet
+            eth = Ether()
+            packet = eth / IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / lsu_packet
             logger.debug(f"\033[1;32mReply to LSR, Send LSU Packet\033[0m")
             if Config.is_debug:
                 packet.show()
-            send(packet, verbose=False)
+            sendp(packet, verbose=False, iface=interface.ethname)
         else:
             logger.debug("\033[1;36OSPF LSR Packet Ignored\033[0m")
 
@@ -574,12 +579,13 @@ def handle_ospf_packets(packet, router, interface):
                     )
                 
                 continue
-            # (8) 
-        packet = IP(src=interface.ip, dst="224.0.0.5", ttl=1) / ospf_header / lsack
+            # (8)
+        eth = Ether() 
+        packet = eth / IP(src=interface.ip, dst="224.0.0.5", ttl=1) / ospf_header / lsack
         logger.debug(f"\033[1;32mLSAck\033[0m")
         if Config.is_debug:
             packet.show()
-        send(packet, verbose=False)
+        sendp(packet, verbose=False, iface=interface.ethname)
 
 
         # 洪泛转发
@@ -608,7 +614,7 @@ def handle_ospf_packets(packet, router, interface):
 
 def recvPackets(router, interface):
     while not Config.is_stop:
-        sniff(filter="ip proto 89", prn=lambda packet: handle_ospf_packets(packet, router, interface), timeout=1)
+        sniff(filter="ip proto 89", prn=lambda packet: handle_ospf_packets(packet, router, interface), timeout=1, iface=interface.ethname)
 
 def calculate_Fletcher_checksum(bytes,n):
     C0 = 0

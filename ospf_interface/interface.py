@@ -60,6 +60,7 @@ class Interface():
             return None
         
     def disConfig(self):
+        print(f'name : {self.ethname}')
         print(f'ip : {self.ip}')
         print(f'mask : {self.mask}')
         print(f'area_id : {self.area_id}')
