@@ -136,7 +136,33 @@ def sendDDPackets(interface,neighbor,dd_packet,need_retrans=True):
         neighbor.send_dd_timers[dd_packet.dd_sequence] = timer
         timer.start()
 
-    
+def sendDirectLSAck(interface,neighbor,lsa):
+    ospf_header = OSPF_Header(
+        version = 2,
+        type = 5,  # LSAck 包
+        router_id = interface.router.router_id,
+        area_id = interface.area_id,
+        autype = 0,
+        auth = 0
+    )
+    direct_ack = OSPF_LSAck() 
+    direct_ack.lsa_headers.append(
+        OSPF_LSAHeader(
+            age = lsa.age,
+            options = lsa.options,
+            type = lsa.type,
+            lsa_id = lsa.lsa_id,
+            adv_router = lsa.adv_router,
+            seq = lsa.seq,
+            checksum = lsa.checksum,
+            len = lsa.len 
+        )
+    )
+    eth = Ether() 
+    packet = eth / IP(src=interface.ip, dst=neighbor.ip, ttl=1) / ospf_header / direct_ack
+    sendp(packet, verbose=False, iface=interface.ethname)
+    logger.debug(f"\033[1;32mSend Direct LSAck for LSA Type {lsa.type} LSA_id {lsa.lsa_id} Adv_router {lsa.adv_router}\033[0m")
+
 def handleRecvDDPackets(neighbor,dd_packet):
     interface = neighbor.hostInter
     # 处理DD报文
@@ -492,8 +518,22 @@ def handle_ospf_packets(packet, router, interface):
                 lsa.show()
         # 连接状态数据库
         lsdb = interface.lsdb
-        interface = neighbor.hostInter
-        ospf_header = OSPF_Header(
+        # 洪泛LSU
+        lsu_header = OSPF_Header(
+            version = 2,
+            type = 4,  # LSU 包
+            router_id = interface.router.router_id,
+            area_id = interface.area_id,
+            autype = 0,
+            auth = 0
+        )
+        send_lsu_packet = OSPF_LSU(
+            num_lsa = 0,
+            lsa_list = []  
+        )
+        # LSAck包
+        eth = Ether() 
+        lsack_header = OSPF_Header(
             version = 2,
             type = 5,  # LSAck 包
             router_id = interface.router.router_id,
@@ -501,9 +541,10 @@ def handle_ospf_packets(packet, router, interface):
             autype = 0,
             auth = 0
         )
-        lsack = OSPF_LSAck()
+        # 延迟LSAck回复
+        ls_ack = OSPF_LSAck()
         for lsa in lsu_packet.lsa_list:
-            # 处理LSU中的LSA
+            # 错误判断
             # (1) 确认LSA的LS校验和,错误丢弃
             if calculate_Fletcher_checksum(raw(lsa)[2:],15) != 0:
                 logger.debug("\033[1;31mLSA CheckSum Error\033[0m")
@@ -522,9 +563,15 @@ def handle_ospf_packets(packet, router, interface):
             if lsa.age == MaxAge and lsdb.getLSA(lsa.type,lsa.lsa_id,lsa.adv_router) == None and\
                 neighbor.state != NeighborState.S_Exchange and neighbor.state != NeighborState.S_Loading:
                 # (a) 通过发送一个 LSAck 包到发送的邻居（见第 13.5 节）来确认收到该 LSA
-
+                sendDirectLSAck(interface,neighbor,lsa)
                 # (b) 丢弃该 LSA
                 continue
+            # 处理LSU中的LSA
+            # 将收到的LSA从邻居请求列表中删除
+            neighbor.delLSAInReqList(lsa.type,lsa.lsa_id,lsa.adv_router)
+            # 将lsa加入到LSU中
+            send_lsu_packet.lsa_list.append(lsa)
+            send_lsu_packet.num_lsa += 1
             # (5) 在路由器当前的连接状态数据库中查找该 LSA 的实例。如果没有找到数据库中的副本，或所接收的 LSA 比数据库副本新
             old_lsa = lsdb.getLSA(lsa.type,lsa.lsa_id,lsa.adv_router)
             if old_lsa == None or lsa.is_newer(old_lsa):
@@ -538,8 +585,7 @@ def handle_ospf_packets(packet, router, interface):
                 # (d)删除旧的LSA,添加新的LSA
                 lsdb.addLSA(lsa)
                 # (e) TODO 发送LSAck回复 
-                # (f) TODO 接收自生成的LSA 
-                lsack.lsa_headers.append(
+                ls_ack.lsa_headers.append(
                     OSPF_LSAHeader(
                         age = lsa.age,
                         options = lsa.options,
@@ -551,21 +597,18 @@ def handle_ospf_packets(packet, router, interface):
                         len = lsa.len 
                     )
                 )
-                neighbor.delLSAInReqList(lsa.type,lsa.lsa_id,lsa.adv_router)
+                # (f) TODO 接收自生成的LSA 
                 continue
-            # (6) 如果该 LSA 的实例正在邻居的连接状态请求列表上，产生数据库交换过程的错误
-
-
+            # (6) 如果该 LSA 的实例正在邻居的连接状态请求列表上，产生数据库交换过程的错误,感觉有问题
+            pass
             # (7) 接收的 LSA 与数据库副本为同一实例（没有哪个较新）
             if not lsa.is_newer(old_lsa):
                 # 如果 LSA 在所接收邻居的连接状态重传列表上，表示路由器自身正期待着这一LSA的确认。路由器可以将这一LSA作为确认，并将其从连接状态重传列表中去除
                 if neighbor.findLSAInRetransList(lsa.type,lsa.lsa_id,lsa.adv_router):
+                    # 作为确认, 从连接状态重传列表中去除, 隐式确认
                     neighbor.handleLsaAck(lsa.type,lsa.lsa_id,lsa.adv_router,Implicit = True)
-                # 也许需要从接收接口发送LSAck包以确认所收到的LSA
-                else:
-                    pass
-                    # TODO
-                    lsack.lsa_headers.append(
+                    # 发送延迟确认
+                    ls_ack.lsa_headers.append(
                         OSPF_LSAHeader(
                             age = lsa.age,
                             options = lsa.options,
@@ -577,19 +620,23 @@ def handle_ospf_packets(packet, router, interface):
                             len = lsa.len 
                         )
                     )
-                
+                # LSA 重复，但不被作为隐含确认, 发送直接确认
+                else:
+                    sendDirectLSAck(interface,neighbor,lsa)
                 continue
             # (8)
-        eth = Ether() 
-        packet = eth / IP(src=interface.ip, dst="224.0.0.5", ttl=1) / ospf_header / lsack
-        logger.debug(f"\033[1;32mLSAck\033[0m")
+        packet = eth / IP(src=interface.ip, dst="224.0.0.5", ttl=1) / lsack_header / ls_ack
         if Config.is_debug:
-            packet.show()
+            packet.show2()
         sendp(packet, verbose=False, iface=interface.ethname)
-
-
-        # 洪泛转发
-        # TODO
+        logger.debug(f"\033[1;32mSend LSAck\033[0m")
+        # 洪泛转发,全部都转,有来的就转
+        if lsu_packet.num_lsa != 0:
+            for iface in router.interfaces.values():
+                if iface.area_id == interface.area_id and iface != interface and iface.state.value > InterfaceState.S_Waiting.value:
+                    # iface.state == InterfaceState.S_Backup or iface.state == InterfaceState.S_DROther : # or iface.state.value > InterfaceState.S_Waiting.value:
+                    packet = eth / IP(src=iface.ip, dst="224.0.0.5", ttl=1) / lsu_header / send_lsu_packet
+                    sendp(packet, verbose=False, iface=iface.ethname)
 
     # LSAck
     elif OSPF_Header in packet and packet[OSPF_Header].type == 5:

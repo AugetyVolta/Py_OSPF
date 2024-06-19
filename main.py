@@ -52,8 +52,3 @@ if __name__ == "__main__":
         else:
             print("unknown command, please try command \033[33mhelp\033[0m for details")
         print()
-
-    for thread in send_hello_threads:
-        thread.join()
-    for thread in recv_packet_threads:
-        thread.join()

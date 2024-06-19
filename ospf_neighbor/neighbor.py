@@ -58,8 +58,7 @@ class Neighbor():
             )
             # 时限等于MaxAge的LSA被改为加入邻居连接状态重传列表
             if lsa_header.age == MaxAge:
-                pass
-                # TODO:加入重传列表,还没想好如何处理
+                # TODO:加入重传列表
                 self.link_state_retransmission_list.append(lsa_header)
             else:
                 self.database_summary_list.append(lsa_header)
@@ -147,7 +146,9 @@ class Neighbor():
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived State {self.state.name} --> {NeighborState.S_Init.name}\033[0m")
             self.state = NeighborState.S_Init
             # TODO 清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
-
+            self.link_state_retransmission_list.clear()
+            self.link_state_request_list.clear()
+            self.database_summary_list.clear()
         elif self.state == NeighborState.S_Init:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event 1WayReceived Pass\033[0m")
         else:
@@ -186,6 +187,9 @@ class Neighbor():
                     logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk State {self.state.name} --> {NeighborState.S_2Way.name}\033[0m")
                     self.state = NeighborState.S_2Way
                     # TODO:清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
+                    self.link_state_retransmission_list.clear()
+                    self.link_state_request_list.clear()
+                    self.database_summary_list.clear()
                     return
             # 保持连接
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventAdjOk Keep connected\033[0m")
@@ -207,7 +211,9 @@ class Neighbor():
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event SeqNumberMismatch State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
             self.state = NeighborState.S_Exstart
             # TODO:清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
-
+            self.link_state_retransmission_list.clear()
+            self.link_state_request_list.clear()
+            self.database_summary_list.clear()
             # 设置邻居的序号
             self.dd_sequence_number = 114514
             self.is_master = False
@@ -256,7 +262,9 @@ class Neighbor():
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventBadLSReq State {self.state.name} --> {NeighborState.S_Exstart.name}\033[0m")
             self.state = NeighborState.S_Exstart
             # TODO:清除连接状态重传列表、数据库汇总列表和连接状态请求列表中的 LSA
-
+            self.link_state_retransmission_list.clear()
+            self.link_state_request_list.clear()
+            self.database_summary_list.clear()
             # 设置邻居的序号
             self.dd_sequence_number = 114514
             self.is_master = False
