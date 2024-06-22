@@ -6,9 +6,11 @@ from config import Config
 from ospf_router.router import MyRouter
 from ospf_packet.packetManager import sendHelloPackets,recvPackets 
 
+global router
 
 def signal_handler(sig, frame):
     Config.is_stop = True
+    router.routing_table.resetRoute()
     print("Signal received, stopping threads...")
     sys.exit(0)
 
@@ -33,17 +35,24 @@ if __name__ == "__main__":
         recv_packet.start()
 
     command_dicts = {
-        "dis ": "display this router config",
+        "peer": "display ospf peer",
+        "routing": "display ospf routing",
+        "lsdb": "dis ospf lsdb",
         "exit": "terminal OSPF threads",
         "help": "help list"
     }
 
     while True:
         command = input()
-        if command == 'dis':
+        if command == 'peer':
             router.disConfig()
+        elif command == 'routing':
+            router.disRoutingTable()
+        elif command == 'lsdb':
+            router.disLsdb()
         elif command == 'exit':
             Config.is_stop = True
+            router.routing_table.resetRoute()
             print("Signal received, stopping threads...")
             break
         elif command == 'help':

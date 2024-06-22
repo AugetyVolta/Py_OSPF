@@ -118,6 +118,11 @@ def sendLSRPackets(neighbor):
 
 
 def sendDDPackets(interface,neighbor,dd_packet,need_retrans=True):
+    if neighbor.state.value >= NeighborState.S_Loading.value:
+        if dd_packet.dd_sequence in neighbor.send_dd_timers:
+            neighbor.send_dd_timers[dd_packet.dd_sequence].cancel()
+            neighbor.send_dd_timers.pop(dd_packet.dd_sequence)
+        return
     # 保存发送的DD packet
     neighbor.last_send_dd_packet = dd_packet
     sendp(dd_packet, verbose=False, iface=interface.ethname)
@@ -337,6 +342,11 @@ def handle_ospf_packets(packet, router, interface):
         neighbor = interface.getNeighbor(src_ip)
         is_dup = False # 是否是重复的DD
 
+        # Down,Attempt
+        if neighbor.state == NeighborState.S_Down or neighbor.state == NeighborState.S_Attempt:
+            logger.debug("\033[1;31mOSPF DD Packet Rejected\033[0m")
+            return
+
         logger.debug("\033[1;36mReceived OSPF DD Packet:\033[0m")
         logger.debug(f"MTU: {dd_packet.mtu}")
         logger.debug(f"Options: {dd_packet.options}")
@@ -546,11 +556,11 @@ def handle_ospf_packets(packet, router, interface):
         for lsa in lsu_packet.lsa_list:
             # 错误判断
             # (1) 确认LSA的LS校验和,错误丢弃
-            if calculate_Fletcher_checksum(raw(lsa)[2:],15) != 0:
-                logger.debug("\033[1;31mLSA CheckSum Error\033[0m")
-                if Config.is_debug:
-                    lsa.show()
-                continue
+            # if calculate_Fletcher_checksum(raw(lsa)[2:],15) != 0:
+            #     logger.debug("\033[1;31mLSA CheckSum Error\033[0m")
+            #     if Config.is_debug:
+            #         lsa.show()
+            #     continue
             # (2) 检查 LSA 的 LS 类型。如果 LS 类型为未知，丢弃该 LSA
             if not 1<= lsa.type <= 5:
                 logger.debug("\033[1;31mLSA Unknown Type\033[0m")
@@ -633,10 +643,15 @@ def handle_ospf_packets(packet, router, interface):
         # 洪泛转发,全部都转,有来的就转
         if lsu_packet.num_lsa != 0:
             for iface in router.interfaces.values():
-                if iface.area_id == interface.area_id and iface != interface and iface.state.value > InterfaceState.S_Waiting.value:
+                if iface.area_id == interface.area_id and iface != interface and iface.state.value >= InterfaceState.S_Waiting.value:
                     # iface.state == InterfaceState.S_Backup or iface.state == InterfaceState.S_DROther : # or iface.state.value > InterfaceState.S_Waiting.value:
                     packet = eth / IP(src=iface.ip, dst="224.0.0.5", ttl=1) / lsu_header / send_lsu_packet
                     sendp(packet, verbose=False, iface=iface.ethname)
+        # 更新路由表
+        if neighbor.state == NeighborState.S_Full:
+            router.routing_table.generateRoutings()
+        
+        # TODO:LSU重传
 
     # LSAck
     elif OSPF_Header in packet and packet[OSPF_Header].type == 5:

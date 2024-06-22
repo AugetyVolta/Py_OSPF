@@ -63,6 +63,11 @@ class InterfaceEvent(Enum):
     E_UnloopInd = 5
     E_InterfaceDown = 6 
 
+"routing item types"
+class RoutingType(Enum):
+    Network = 1
+    Router = 2
+
 class Config():
     is_stop = False
     is_debug = True

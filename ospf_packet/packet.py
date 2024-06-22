@@ -52,7 +52,7 @@ class OSPF_LSAHeader(Packet):
         ByteField("type", 1),
         IPField("lsa_id", "0.0.0.0"),
         IPField("adv_router", "0.0.0.0"),
-        IntField("seq", 0),
+        XIntField("seq", 0),
         XShortField("checksum", 0),
         ShortField("len", 0)
     ]

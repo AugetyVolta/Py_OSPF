@@ -1,10 +1,14 @@
+import os
+import pandas as pd
 import psutil
 import ipaddress
 from scapy.all import *
+from tabulate import tabulate
 from config import InitialSequenceNumber, InterfaceState, NeighborState, NetworkType,logger,Config
 from ospf_interface.interface import Interface
 from ospf_lsdatabase.lsdb import LSADataBase
-from ospf_packet.packet import OSPF_NetworkLSA, OSPF_NetworkLSA_Item, OSPF_RouterLSA, OSPF_RouterLSA_Item
+from ospf_packet.packet import OSPF_LSU, OSPF_Header, OSPF_NetworkLSA, OSPF_NetworkLSA_Item, OSPF_RouterLSA, OSPF_RouterLSA_Item
+from ospf_router.routing import RoutingTable
 
 def get_network_realInter():
     realInters = psutil.net_if_addrs()
@@ -20,6 +24,8 @@ class MyRouter():
         self.lsa_seq = InitialSequenceNumber
         # 链路状态数据库,{area_id:lsdb}不同的area有不同的数据库
         self.lsdbs = self.initLSDataBase()
+        # 路由表
+        self.routing_table = RoutingTable(self,self.router_id,self.lsdbs)
 
     """
     所有接口的最小IP地址作为routerId,但是接口不能是回环接口localhost
@@ -44,6 +50,10 @@ class MyRouter():
                                                                  mask=address.netmask,
                                                                  router=self,
                                                                  ethname=interface_name)
+                    # 开启网卡转发
+                    os.system(f"sudo sysctl net.ipv4.conf.{interface_name}.forwarding=1")
+                    # 打开网卡混杂模式
+                    os.system(f"sudo ifconfig {interface_name} promisc")
         return interfaces
 
     def initLSDataBase(self):
@@ -53,15 +63,6 @@ class MyRouter():
                 lsdbs[interface.area_id] = LSADataBase()
             interface.lsdb = lsdbs[interface.area_id]
         return lsdbs
-    
-    def disConfig(self):
-        print("\033[1;32m===========MyConfig===========\033[0m")
-        print(f"router_id: {self.router_id}")
-        for i,inter in enumerate(self.interfaces.values()):
-            print(f"\033[1;33m=========Inter{i+1}=========\033[0m")
-            inter.disConfig()
-            print()
-        print("\033[1;32m==============================\033[0m")
     
     def genRouterLSAs(self):
         # 对于每一个区域生成Router_LSA
@@ -120,16 +121,18 @@ class MyRouter():
                 logger.debug("\033[1;32mGenerate new Router LSA\033[0m")
                 if Config.is_debug:
                     router_lsa.show()
+                # 将新生成的LSA转发出去
+                self.floodLSA(interface,router_lsa)
             elif router_lsa.is_newer(old_lsa):
                 lsdb.delLSA(old_lsa)
                 lsdb.addLSA(router_lsa)
                 logger.debug("\033[1;32mUpdate old Router LSA\033[0m")
                 if Config.is_debug:
                     router_lsa.show()
+                # 将新生成的LSA转发出去
+                self.floodLSA(interface,router_lsa)
             else:
                 logger.debug("\033[1;32mNew Router LSA exists\033[0m")
-            # 洪泛
-            # TODO: 先空着
 
     def genNetworkLSAs(self,interface):
         lsdb = interface.lsdb
@@ -150,7 +153,7 @@ class MyRouter():
             if neighbor.state == NeighborState.S_Full:
                 network_lsa.attached_routers.append(
                     OSPF_NetworkLSA_Item(
-                        attached_router = neighbor.hostInter.router.router_id
+                        attached_router = neighbor.id
                     )
                 )
         # DR自己也在列表中
@@ -169,15 +172,70 @@ class MyRouter():
             logger.debug("\033[1;32mGenerate new Network LSA\033[0m")
             if Config.is_debug:
                 network_lsa.show()
+            # 将新生成的LSA转发出去
+            self.floodLSA(interface,network_lsa)
         elif network_lsa.is_newer(old_lsa):
             lsdb.delLSA(old_lsa)
             lsdb.addLSA(network_lsa)
-            logger.debug("\033[1;32mGenerate new Network LSA\033[0m")
+            logger.debug("\033[1;32mUpdate old Network LSA\033[0m")
             if Config.is_debug:
                 network_lsa.show()
+            # 将新生成的LSA转发出去
+            self.floodLSA(interface,network_lsa)
         else:
             logger.debug("\033[1;32mNew Network LSA exists\033[0m")
+    
+    # 往所有端口转发
+    def floodLSA(self,interface,lsa):
+        logger.debug("\033[1;32mStart Flood LSA\033[0m")
+        eth = Ether()
+        lsu_header = OSPF_Header(
+            version = 2,
+            type = 4,  # LSU 包
+            router_id = interface.router.router_id,
+            area_id = interface.area_id,
+            autype = 0,
+            auth = 0
+        )
+        send_lsu_packet = OSPF_LSU(
+            num_lsa = 1,
+            lsa_list = [lsa]  
+        )
+        router = interface.router
+        for iface in router.interfaces.values():
+            if iface.area_id == interface.area_id and iface.state.value >= InterfaceState.S_Waiting.value:
+                packet = eth / IP(src=iface.ip, dst="224.0.0.5", ttl=1) / lsu_header / send_lsu_packet
+                sendp(packet, verbose=False, iface=iface.ethname)
 
+    def disConfig(self):
+        print("\033[1;32m===========MyConfig===========\033[0m")
+        print(f"router_id: {self.router_id}")
+        for i,inter in enumerate(self.interfaces.values()):
+            print(f"\033[1;33m=========Inter{i+1}=========\033[0m")
+            inter.disConfig()
+            print()
+        print("\033[1;32m==============================\033[0m")
+
+    def disRoutingTable(self):
+        routing_items = self.routing_table.routing_items.values()
+        data = {
+            'Destination ID': [item.destination_id for item in routing_items],
+            'Mask': [item.mask for item in routing_items],
+            'Cost': [item.cost for item in routing_items],
+            'Next Hop': [item.next_hop for item in routing_items],
+            'Adv Router': [item.adv_router for item in routing_items],
+            'Area ID': [item.area_id for item in routing_items],
+            'Interface Name': [item.interface_name for item in routing_items],
+            'Destination Type': [item.destination_type.name for item in routing_items]
+        }
+        df = pd.DataFrame(data)
+        table = tabulate(df, headers='keys', tablefmt='pretty')
+        print(f'\033[1;32mOSPF Router ID {self.router_id} Routing Tables\n\033[0m',table)
+    
+    def disLsdb(self):
+        for _,lsdb in self.lsdbs.items():
+            for lsa in lsdb.LSAs:
+                lsa.show2()
 
 def calculate_network_address(ip_str, netmask_str):
         # 将IP地址和掩码转换为IPv4Address和IPv4Network对象
@@ -208,4 +266,4 @@ def calculate_Fletcher_checksum(bytes,n):
         X += 255
     if Y < 0:
         Y += 255
-    return (X << 8) | Y 
+    return (X << 8) | Y

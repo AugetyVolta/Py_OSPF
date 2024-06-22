@@ -30,3 +30,10 @@ class LSADataBase():
         self.lsa_lock.acquire()
         self.LSAs.remove(lsa)
         self.lsa_lock.release()
+    
+    # 通过link state id来寻找networkLSA，networkLSA的Lsa_id是DR的接口ip地址
+    def getNetworkLSA(self,lsa_id):
+        for lsa in self.LSAs:
+            if lsa.type == 2 and lsa.lsa_id == lsa_id:
+                return lsa
+        return None

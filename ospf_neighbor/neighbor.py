@@ -235,6 +235,8 @@ class Neighbor():
                 # 此外，如果路由器是该网络的 DR 的话，还需要生成一个新的 Network-LSA
                 if self.hostInter.ip == self.hostInter.dr:
                     self.hostInter.router.genNetworkLSAs(self.hostInter)
+                # 生成路由表
+                self.hostInter.router.routing_table.generateRoutings()
             # 开始发送LSR请求
             else:
                 logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event evnetExchangeDone State {self.state.name} --> {NeighborState.S_Loading.name}\033[0m")
@@ -254,6 +256,8 @@ class Neighbor():
             # 此外，如果路由器是该网络的 DR 的话，还需要生成一个新的 Network-LSA
             if self.hostInter.ip == self.hostInter.dr:
                 self.hostInter.router.genNetworkLSAs(self.hostInter)
+            # 生成路由表
+            self.hostInter.router.routing_table.generateRoutings()
         else:
             logger.debug(f"\033[1;36mNeighbor {self.id} Ip {self.ip} Event eventLoadingDone Pass\033[0m")
 
