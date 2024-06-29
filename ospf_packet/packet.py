@@ -88,7 +88,7 @@ class OSPF_RouterLSA_Item(Packet):
         ByteField("type",0),
         ByteField("tos",0),
         ShortField("metric", 0)
-        # TODO: 还有一部分没有遇到先不实现
+        # 不需要向下兼容
     ]
 
     def extract_padding(self, s):

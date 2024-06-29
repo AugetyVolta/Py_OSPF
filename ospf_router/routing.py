@@ -73,10 +73,10 @@ class RoutingTable():
                         for item in networkLSA.attached_routers:
                             router_id = item.attached_router
                             if router_id != cur_node.id:
-                                cur_node.adjs[router_id] = Adjacency(src_ip,router_id,cost,src_mask=networkLSA.network_mask)
+                                cur_node.adjs[router_id] = Adjacency(src_ip,cost,src_mask=networkLSA.network_mask)
                 # StubNet
                 elif link.type == 3:
-                    cur_node.adjs[link.link_id] = Adjacency(link.link_id,link.link_id,cost=link.metric,src_mask=link.link_data)
+                    cur_node.adjs[link.link_id] = Adjacency(link.link_id,cost=link.metric,src_mask=link.link_data)
                     self.nodes[link.link_id] = Node(link.link_id)
 
     def Dijkstra(self,src):
@@ -173,9 +173,9 @@ class RoutingTable():
                     dst=f"{rtitem.destination_id}/{mask_to_length(rtitem.mask)}",
                     gateway=rtitem.next_hop,
                     oif=ip.link_lookup(ifname=rtitem.interface_name)[0])
-            print("IPv4 route added successfully")
+            logger.debug("\033[1;32mIPv4 route added successfully\033[0m")
         except Exception as e:
-            print(f"Failed to add IPv4 route: {e}")
+            logger.debug(f"\033[1;31mFailed to add IPv4 route: {e}\033[0m")
         finally:
             ip.close()
     
@@ -186,9 +186,9 @@ class RoutingTable():
                     dst=f"{rtitem.destination_id}/{mask_to_length(rtitem.mask)}",
                     gateway=rtitem.next_hop,
                     oif=ip.link_lookup(ifname=rtitem.interface_name)[0])
-            print("IPv4 route deleted successfully")
+            logger.debug("\033[1;32mIPv4 route deleted successfully\033[0m")
         except Exception as e:
-            print(f"Failed to del IPv4 route: {e}")
+            logger.debug(f"\033[1;31mFailed to del IPv4 route: {e}\033[0m")
         finally:
             ip.close()
 
@@ -229,13 +229,11 @@ class Node():
         self.interface_name = None
 
 class Adjacency():
-    def __init__(self,src_ip,end_node_id,cost,src_mask = "255.255.255.0"):
+    def __init__(self,src_ip,cost,src_mask = "255.255.255.0"):
         # 路由器接口的ip
         self.src_ip = src_ip
         # 路由器接口的mask
         self.src_mask = src_mask
-        # 对面的node id
-        self.end_node_id = end_node_id
         # cost
         self.cost = cost
 

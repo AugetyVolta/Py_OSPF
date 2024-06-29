@@ -27,22 +27,6 @@ class NeighborState(Enum):
     S_Loading = 6
     S_Full = 7
 
-"neighbor events"
-class NeighborEvent(Enum):
-    E_HelloReceived = 0
-    E_Start = 1
-    E_2WayReceived = 2
-    E_NegotiationDone = 3
-    E_ExchangeDone = 4
-    E_BadLSReq = 5
-    E_LoadingDone = 6
-    E_AdjOK = 7
-    E_SeqNumberMismatch = 8
-    E_1Way = 9
-    E_KillNbr = 10
-    E_InactivityTimer = 11
-    E_LLDown = 12
-
 "interface states"
 class InterfaceState(Enum):
     S_Down = 0
@@ -53,16 +37,6 @@ class InterfaceState(Enum):
     S_Backup = 5
     S_DR = 6
 
-"interface events"
-class InterfaceEvent(Enum):
-    E_InterfaceUp = 0
-    E_WaitTimer = 1
-    E_BackupSeen = 2
-    E_NeighborChange = 3
-    E_LoopInd = 4
-    E_UnloopInd = 5
-    E_InterfaceDown = 6 
-
 "routing item types"
 class RoutingType(Enum):
     Network = 1
@@ -70,13 +44,16 @@ class RoutingType(Enum):
 
 class Config():
     is_stop = False
-    is_debug = True
+    is_debug = True # 是否是debug状态,输出日志
 
 logger = logging.getLogger('my_thread_logger')
 logger.setLevel(logging.DEBUG)
 # 创建控制台处理器并设置级别为 DEBUG
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+console_handler.setFormatter(formatter)
+
 if Config.is_debug:
     logger.addHandler(console_handler)
 else:

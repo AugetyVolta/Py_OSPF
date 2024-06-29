@@ -198,7 +198,7 @@ class Interface():
         # (4)如果路由器 X 新近成为 DR 或 BDR，或者不再成为 DR 或 BDR,重复2和3
         # if (self.ip == self.dr) != (self.ip == final_dr.ip) or (self.ip == self.bdr) != (self.ip == final_bdr.ip):
         #     pass
-        # TODO:重复选举,使得dr不等于bdr,暂时不写
+        # 重复选举,使得dr不等于bdr
         if final_dr == None:
             final_dr = my_self_neighbor
         if final_bdr == None:
@@ -226,7 +226,7 @@ class Interface():
         # 路由器成为新的DR,生成新的Network LSA
         if self.ip != prev_dr and self.ip == self.dr:
             self.router.genNetworkLSAs(self)
-        # TODO: 如果路由器不再是DR,原来为该网络生成的LSA需要删除
+        # 如果路由器不再是DR,原来为该网络生成的LSA需要删除
         if self.ip == prev_dr and self.ip != self.dr:
             pass
         

@@ -90,7 +90,7 @@ class MyRouter():
                     continue
                 # 如果是loopback
                 elif interface.state == InterfaceState.S_Loopback:
-                    #TODO:这个状态目前用不上
+                    # 这个状态目前用不上
                     pass 
                 # 广播,NBMA
                 elif interface.type == NetworkType.T_BROADCAST or interface.type == NetworkType.T_NBMA:

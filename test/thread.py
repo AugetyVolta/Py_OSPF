@@ -20,5 +20,5 @@ if __name__ == "__main__":
     recv_thread.start()
     send_thread.start()
     
-    recv_thread.join()
-    send_thread.join()
+    # recv_thread.join()
+    # send_thread.join()

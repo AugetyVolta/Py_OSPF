@@ -12,7 +12,7 @@ class RouteItem:
     def __init__(self, dest, prefix_length, gateway):
         self.dest = dest
         self.mask = prefix_length
-        self.gateway = gateway
+        self.gateway = gateway # 必须设置为下一跳
 
 class RouteTable:
     def __init__(self):
